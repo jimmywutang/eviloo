@@ -1,0 +1,4 @@
+
+config domain localhost
+config ip <41.217.12.243>
+blacklist unauth
