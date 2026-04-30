@@ -1,6 +1,6 @@
 module github.com/kgretzky/evilginx2
 
-go 1.24
+go 1.23.0
 
 require (
 	github.com/caddyserver/certmagic v0.20.0
@@ -13,7 +13,7 @@ require (
 	github.com/inconshreveable/go-vhost v0.0.0-20160627193104-06d84117953b
 	github.com/miekg/dns v1.1.58
 	github.com/mwitkow/go-http-dialer v0.0.0-20161116154839-378f744fb2b8
-	github.com/refraction-networking/utls v1.8.2
+	github.com/refraction-networking/utls v1.6.7
 	github.com/spf13/viper v1.10.1
 	github.com/tidwall/buntdb v1.1.0
 	go.uber.org/zap v1.27.0
@@ -23,6 +23,7 @@ require (
 require (
 	github.com/andybalholm/brotli v1.0.6 // indirect
 	github.com/cenkalti/backoff/v3 v3.0.0 // indirect
+	github.com/cloudflare/circl v1.3.7 // indirect
 	github.com/fsnotify/fsnotify v1.5.1 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/klauspost/compress v1.17.4 // indirect

