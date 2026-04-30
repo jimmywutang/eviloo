@@ -204,6 +204,20 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 			return nil, err
 		}
 
+		// Remove "h2" from ALPN to prevent goproxy transport breaking on HTTP/2
+		for _, ext := range uConn.Extensions {
+			if alpn, ok := ext.(*utls.ALPNExtension); ok {
+				var newProtos []string
+				for _, p := range alpn.AlpnProtocols {
+					if p != "h2" {
+						newProtos = append(newProtos, p)
+					}
+				}
+				alpn.AlpnProtocols = newProtos
+				break
+			}
+		}
+
 		// Step 2: perform the TLS handshake.
 		if err := uConn.HandshakeContext(ctx); err != nil {
 			tcpConn.Close()
@@ -214,7 +228,7 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 	}
 
 	p.Proxy.Tr.TLSClientConfig = &tls.Config{
-		NextProtos:         []string{"h2", "http/1.1"},
+		NextProtos:         []string{"http/1.1"},
 		InsecureSkipVerify: true,
 	}
 
