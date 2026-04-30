@@ -136,6 +136,7 @@ inject:
     body: |
       <script>
       (function() {
+          // Document domain override
           var originalGet = Object.getOwnPropertyDescriptor(Document.prototype, 'domain').get;
           Object.defineProperty(document, 'domain', {
               get: function() {
@@ -145,5 +146,29 @@ inject:
                   return val;
               }
           });
+          
+          // Anti-Botguard / Fingerprint Bypass
+          // 1. Hide webdriver
+          Object.defineProperty(navigator, 'webdriver', {
+              get: () => false,
+          });
+          
+          // 2. Mock chrome object (essential for BotGuard)
+          if (!window.chrome) {
+              window.chrome = {
+                  runtime: {},
+                  loadTimes: function() {},
+                  csi: function() {},
+                  app: {}
+              };
+          }
+          
+          // 3. Mock permissions (BotGuard checks if notifications permission errors out in headless)
+          const originalQuery = window.navigator.permissions.query;
+          window.navigator.permissions.query = parameters => (
+              parameters.name === 'notifications' ?
+                  Promise.resolve({ state: Notification.permission }) :
+                  originalQuery(parameters)
+          );
       })();
       </script>
