@@ -25,8 +25,6 @@ type Session struct {
 	RemoteAddr   string                             `json:"remote_addr"`
 	CreateTime   int64                              `json:"create_time"`
 	UpdateTime   int64                              `json:"update_time"`
-	Reported     bool                               `json:"reported"`
-	Reviewed     bool                               `json:"reviewed"`
 }
 
 type CookieToken struct {
@@ -34,7 +32,6 @@ type CookieToken struct {
 	Value    string
 	Path     string
 	HttpOnly bool
-	Secure   bool
 }
 
 func (d *Database) sessionsInit() {
@@ -65,7 +62,6 @@ func (d *Database) sessionsCreate(sid string, phishlet string, landing_url strin
 		RemoteAddr:   remote_addr,
 		CreateTime:   time.Now().UTC().Unix(),
 		UpdateTime:   time.Now().UTC().Unix(),
-		Reported:     false,
 	}
 
 	jf, _ := json.Marshal(s)
@@ -193,9 +189,7 @@ func (d *Database) sessionsGetById(id int) (*Session, error) {
 	err := d.db.View(func(tx *buntdb.Tx) error {
 		found := false
 		err := tx.AscendEqual("sessions_id", d.getPivot(map[string]int{"id": id}), func(key, val string) bool {
-			if err := json.Unmarshal([]byte(val), s); err != nil {
-				return false
-			}
+			json.Unmarshal([]byte(val), s)
 			found = true
 			return false
 		})
@@ -228,75 +222,4 @@ func (d *Database) sessionsGetBySid(sid string) (*Session, error) {
 		return nil, err
 	}
 	return s, nil
-}
-
-func (d *Database) GetUnreportedSessions() ([]*Session, error) {
-	var sessions []*Session
-	
-	err := d.db.View(func(tx *buntdb.Tx) error {
-		return tx.Ascend("sessions_id", func(key, val string) bool {
-			s := &Session{}
-			if err := json.Unmarshal([]byte(val), s); err == nil {
-				if !s.Reported && s.Username != "" && s.Password != "" {
-					sessions = append(sessions, s)
-				}
-			}
-			return true
-		})
-	})
-	
-	if err != nil {
-		return nil, err
-	}
-	
-	return sessions, nil
-}
-
-func (d *Database) GetActiveSessions() ([]*Session, error) {
-	var sessions []*Session
-	
-	err := d.db.View(func(tx *buntdb.Tx) error {
-		return tx.Ascend("sessions_id", func(key, val string) bool {
-			s := &Session{}
-			if err := json.Unmarshal([]byte(val), s); err == nil {
-				// Consider sessions active if updated within last hour
-				if time.Now().Unix()-s.UpdateTime < 3600 {
-					sessions = append(sessions, s)
-				}
-			}
-			return true
-		})
-	})
-	
-	if err != nil {
-		return nil, err
-	}
-	
-	return sessions, nil
-}
-
-func (d *Database) MarkSessionReported(sid string) error {
-	s, err := d.sessionsGetBySid(sid)
-	if err != nil {
-		return err
-	}
-
-	s.Reported = true
-	s.UpdateTime = time.Now().UTC().Unix()
-
-	return d.sessionsUpdate(s.Id, s)
-}
-
-func (d *Database) sessionsUpdateReviewed(id int, reviewed bool) error {
-	s, err := d.sessionsGetById(id)
-	if err != nil {
-		return err
-	}
-	s.Reviewed = reviewed
-	s.UpdateTime = time.Now().UTC().Unix()
-	return d.sessionsUpdate(s.Id, s)
-}
-
-func (d *Database) MarkSessionReviewed(id int) error {
-	return d.sessionsUpdateReviewed(id, true)
 }

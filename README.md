@@ -5,116 +5,71 @@
   </p>
 </p>
 
-# Evilginx 3.5.4 - Private Dev Edition
+# Evilginx 3.0
 
 **Evilginx** is a man-in-the-middle attack framework used for phishing login credentials along with session cookies, which in turn allows to bypass 2-factor authentication protection.
 
-This **Private Development Edition** includes advanced evasion, detection, and operational features not available in the standard release.
+This tool is a successor to [Evilginx](https://github.com/kgretzky/evilginx), released in 2017, which used a custom version of nginx HTTP server to provide man-in-the-middle functionality to act as a proxy between a browser and phished website.
+Present version is fully written in GO as a standalone application, which implements its own HTTP and DNS server, making it extremely easy to set up and use.
 
-**Modified by:** AKaZA (Akz0fuku)  
-**Original Author:** Kuba Gretzky ([@mrgretzky](https://twitter.com/mrgretzky))  
-**Version:** 3.5.4 - Private Dev Edition
+<p align="center">
+  <img alt="Screenshot" src="https://raw.githubusercontent.com/kgretzky/evilginx2/master/media/img/screen.png" height="320" />
+</p>
 
-## 🚨 Disclaimer
+## Disclaimer
 
-This tool is designed for **AUTHORIZED PENETRATION TESTING AND RED TEAM ENGAGEMENTS ONLY**. Unauthorized use of this tool is illegal and unethical. The authors and contributors are not responsible for misuse or damage caused by this tool.
+I am very much aware that Evilginx can be used for nefarious purposes. This work is merely a demonstration of what adept attackers can do. It is the defender's responsibility to take such attacks into consideration and find ways to protect their users against this type of phishing attacks. Evilginx should be used only in legitimate penetration testing assignments with written permission from to-be-phished parties.
 
-**Legal Requirements:**
-- Written authorization from target organization
-- Defined scope of engagement
-- Compliance with local laws and regulations
-- Proper data handling and destruction protocols
+## Evilginx Mastery Training Course
 
-Evilginx should be used only in legitimate penetration testing assignments with written permission from to-be-phished parties.
+If you want everything about reverse proxy phishing with **Evilginx** - check out my [Evilginx Mastery](https://academy.breakdev.org/evilginx-mastery) course!
 
----
+<p align="center">
+  <a href="https://academy.breakdev.org/evilginx-mastery"><img alt="Evilginx Mastery" src="https://raw.githubusercontent.com/kgretzky/evilginx2/master/media/img/evilginx_mastery.jpg" height="320" /></a>
+</p>
 
-## 🚀 What's New in Private Dev Edition
+Learn everything about the latest methods of phishing, using reverse proxying to bypass Multi-Factor Authentication. Learn to think like an attacker, during your red team engagements, and become the master of phishing with Evilginx.
 
-This private development edition extends the standard Evilginx 3.3 with enterprise-grade features for advanced red team operations:
+Grab it here:
+https://academy.breakdev.org/evilginx-mastery
 
-✅ **JA3/JA3S Fingerprinting** - TLS fingerprint analysis and blocking  
-✅ **Sandbox Detection** - VM, debugger, and automation tool detection  
-✅ **Polymorphic JavaScript Engine** - Dynamic code mutation  
-✅ **Domain Rotation** - Automated domain switching  
-✅ **Traffic Shaping** - Adaptive rate limiting and DDoS protection  
-✅ **CAPTCHA Protection** - Turnstile, reCAPTCHA v3, hCaptcha integration  
-✅ **C2 Channel** - Encrypted command and control  
-✅ **Cloudflare Worker Integration** - Proxy bypass capabilities  
-✅ **Enhanced Telegram Integration** - Real-time notifications  
+## Official Gophish integration
 
----
+If you'd like to use Gophish to send out phishing links compatible with Evilginx, please use the official Gophish integration with Evilginx 3.3.
+You can find the custom version here in the forked repository: [Gophish with Evilginx integration](https://github.com/kgretzky/gophish/)
 
-## ⚡ Quick Start
+If you want to learn more about how to set it up, please follow the instructions in [this blog post](https://breakdev.org/evilginx-3-3-go-phish/)
 
-For comprehensive instructions on installation, detailed configuration, enterprise features, and troubleshooting, please refer to the **[Deployment & Operational Guide](DEPLOYMENT.md)**.
+## Write-ups
 
-### Brief Setup Guide
+If you want to learn more about reverse proxy phishing, I've published extensive blog posts about **Evilginx** here:
 
-1.  **Install**:
-    - **Linux**: Run `sudo ./install.sh` for automated setup (creates dedicated `evilginx` service user).
-    - **Windows**: Run `.\install-windows.ps1` in PowerShell as Admin.
-    - **Manual**: Build with `make` or `go build`, then `sudo setcap 'cap_net_bind_service=+ep' <binary>`.
+[Evilginx 2.0 - Release](https://breakdev.org/evilginx-2-next-generation-of-phishing-2fa-tokens)
 
-2.  **Start**:
-    ```bash
-    evilginx
-    ```
+[Evilginx 2.1 - First Update](https://breakdev.org/evilginx-2-1-the-first-post-release-update/)
 
-3.  **Configure**:
-    ```bash
-    domains set yourdomain.com
-    config ipv4 your.vps.ip
-    antibot enabled true
-    ```
+[Evilginx 2.2 - Jolly Winter Update](https://breakdev.org/evilginx-2-2-jolly-winter-update/)
 
-4.  **Deploy**:
-    ```bash
-    phishlets enable o365
-    lures create o365
-    lures edit 0 redirector o365_turnstile
-    lures get-url 0
-    ```
+[Evilginx 2.3 - Phisherman's Dream](https://breakdev.org/evilginx-2-3-phishermans-dream/)
 
-**👉 [Click here for the complete DEPLOYMENT.md guide](DEPLOYMENT.md)**
+[Evilginx 2.4 - Gone Phishing](https://breakdev.org/evilginx-2-4-gone-phishing/)
 
----
+[Evilginx 3.0](https://breakdev.org/evilginx-3-0-evilginx-mastery/)
 
-## 📚 Official Resources
+[Evilginx 3.2](https://breakdev.org/evilginx-3-2/)
 
-- **Original Documentation**: https://help.evilginx.com
-- **Blog**: https://breakdev.org
-- **Training**: [Evilginx Mastery Course](https://academy.breakdev.org/evilginx-mastery)
-- **Gophish Integration**: https://github.com/kgretzky/gophish/
+[Evilginx 3.3](https://breakdev.org/evilginx-3-3-go-phish/)
 
----
+## Help
 
-## 🤝 Contributing
+In case you want to learn how to install and use **Evilginx**, please refer to online documentation available at:
 
-This is a private development fork. For the original project:
-- **Original Repository**: https://github.com/kgretzky/evilginx2
-- **Original Author**: Kuba Gretzky ([@mrgretzky](https://twitter.com/mrgretzky))
+https://help.evilginx.com
 
----
+## Support
 
-## 📄 License & Legal
+I DO NOT offer support for providing or creating phishlets. I will also NOT help you with creation of your own phishlets. Please look for ready-to-use phishlets, provided by other people.
 
-**BSD-3 Clause License** - Copyright (c) 2018-2023 Kuba Gretzky. All rights reserved.  
-Private modifications by AKaZA (Akz0fuku).
+## License
 
-**This tool is provided for educational and authorized testing purposes only.**
-By using this software, you agree to:
-- Only use it with explicit written authorization
-- Comply with all applicable laws and regulations
-- Accept full responsibility for your actions
-
-**Unauthorized access to computer systems is illegal.** Use responsibly.
-
----
-
-## 📞 Support
-
-**For this private edition:**
-- Review **[DEPLOYMENT.md](DEPLOYMENT.md)** for setup help and troubleshooting.
-- Contact **AKaZA (Akz0fuku) on Telegram (@Akaza0fuku)** for support.
-- Enable debug mode for detailed logs.
+**evilginx2** is made by Kuba Gretzky ([@mrgretzky](https://twitter.com/mrgretzky)) and it's released under BSD-3 license.

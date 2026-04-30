@@ -1,11 +1,9 @@
 package core
 
 import (
-	"fmt"
+	"github.com/gorilla/mux"
 	"net/http"
 	"time"
-
-	"github.com/gorilla/mux"
 
 	"github.com/kgretzky/evilginx2/log"
 )
@@ -15,14 +13,14 @@ type HttpServer struct {
 	acmeTokens map[string]string
 }
 
-func NewHttpServer(port int) (*HttpServer, error) {
+func NewHttpServer() (*HttpServer, error) {
 	s := &HttpServer{}
 	s.acmeTokens = make(map[string]string)
 
 	r := mux.NewRouter()
 	s.srv = &http.Server{
 		Handler:      r,
-		Addr:         fmt.Sprintf(":%d", port),
+		Addr:         ":80",
 		WriteTimeout: 15 * time.Second,
 		ReadTimeout:  15 * time.Second,
 	}
@@ -34,11 +32,7 @@ func NewHttpServer(port int) (*HttpServer, error) {
 }
 
 func (s *HttpServer) Start() {
-	go func() {
-		if err := s.srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Error("http server error: %v", err)
-		}
-	}()
+	go s.srv.ListenAndServe()
 }
 
 func (s *HttpServer) AddACMEToken(token string, keyAuth string) {

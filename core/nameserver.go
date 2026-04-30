@@ -14,21 +14,19 @@ import (
 )
 
 type Nameserver struct {
-	srv              *dns.Server
-	cfg              *Config
-	bind             string
-	serial           uint32
-	ctx              context.Context
-	registeredZones  []string
+	srv    *dns.Server
+	cfg    *Config
+	bind   string
+	serial uint32
+	ctx    context.Context
 }
 
 func NewNameserver(cfg *Config) (*Nameserver, error) {
 	o := &Nameserver{
-		serial:          uint32(time.Now().Unix()),
-		cfg:             cfg,
-		bind:            fmt.Sprintf("%s:%d", cfg.GetServerBindIP(), cfg.GetDnsPort()),
-		ctx:             context.Background(),
-		registeredZones: make([]string, 0),
+		serial: uint32(time.Now().Unix()),
+		cfg:    cfg,
+		bind:   fmt.Sprintf("%s:%d", cfg.GetServerBindIP(), cfg.GetDnsPort()),
+		ctx:    context.Background(),
 	}
 
 	o.Reset()
@@ -36,41 +34,8 @@ func NewNameserver(cfg *Config) (*Nameserver, error) {
 	return o, nil
 }
 
-// Reset re-registers DNS handlers for all active domains from DomainManager.
 func (o *Nameserver) Reset() {
-	// Deregister old zones
-	for _, zone := range o.registeredZones {
-		dns.HandleRemove(zone)
-	}
-	o.registeredZones = nil
-
-	dm := o.cfg.GetDomainManager()
-	if dm == nil {
-		return
-	}
-
-	domains := dm.GetActiveDomains()
-	for _, d := range domains {
-		zone := pdom(d)
-		dns.HandleFunc(zone, o.handleRequest)
-		o.registeredZones = append(o.registeredZones, zone)
-	}
-}
-
-// Refresh is called by DomainManager when the active domains list changes.
-func (o *Nameserver) Refresh(domains []string) {
-	// Deregister old zones
-	for _, zone := range o.registeredZones {
-		dns.HandleRemove(zone)
-	}
-	o.registeredZones = nil
-
-	for _, d := range domains {
-		zone := pdom(d)
-		dns.HandleFunc(zone, o.handleRequest)
-		o.registeredZones = append(o.registeredZones, zone)
-	}
-	log.Debug("Nameserver refreshed: %d zones", len(domains))
+	dns.HandleFunc(pdom(o.cfg.general.Domain), o.handleRequest)
 }
 
 func (o *Nameserver) Start() {
@@ -86,24 +51,14 @@ func (o *Nameserver) handleRequest(w dns.ResponseWriter, r *dns.Msg) {
 	m := new(dns.Msg)
 	m.SetReply(r)
 
-	externalIP := o.cfg.GetServerExternalIP()
-	if externalIP == "" {
-		return
-	}
-
-	fqdn := strings.ToLower(r.Question[0].Name)
-
-	// Determine which managed domain this query belongs to
-	baseDomain := o.matchDomain(fqdn)
-	if baseDomain == "" {
-		w.WriteMsg(m)
+	if o.cfg.general.Domain == "" || o.cfg.general.ExternalIpv4 == "" {
 		return
 	}
 
 	soa := &dns.SOA{
-		Hdr:     dns.RR_Header{Name: pdom(baseDomain), Rrtype: dns.TypeSOA, Class: dns.ClassINET, Ttl: 300},
-		Ns:      "ns1." + pdom(baseDomain),
-		Mbox:    "hostmaster." + pdom(baseDomain),
+		Hdr:     dns.RR_Header{Name: pdom(o.cfg.general.Domain), Rrtype: dns.TypeSOA, Class: dns.ClassINET, Ttl: 300},
+		Ns:      "ns1." + pdom(o.cfg.general.Domain),
+		Mbox:    "hostmaster." + pdom(o.cfg.general.Domain),
 		Serial:  o.serial,
 		Refresh: 900,
 		Retry:   900,
@@ -112,48 +67,32 @@ func (o *Nameserver) handleRequest(w dns.ResponseWriter, r *dns.Msg) {
 	}
 	m.Ns = []dns.RR{soa}
 
+	fqdn := strings.ToLower(r.Question[0].Name)
+
 	switch r.Question[0].Qtype {
 	case dns.TypeSOA:
 		log.Debug("DNS SOA: " + fqdn)
 		m.Answer = append(m.Answer, soa)
 	case dns.TypeA:
-		log.Debug("DNS A: " + fqdn + " = " + externalIP)
+		log.Debug("DNS A: " + fqdn + " = " + o.cfg.general.ExternalIpv4)
 		rr := &dns.A{
 			Hdr: dns.RR_Header{Name: fqdn, Rrtype: dns.TypeA, Class: dns.ClassINET, Ttl: 300},
-			A:   net.ParseIP(externalIP),
+			A:   net.ParseIP(o.cfg.general.ExternalIpv4),
 		}
 		m.Answer = append(m.Answer, rr)
 	case dns.TypeNS:
 		log.Debug("DNS NS: " + fqdn)
-		if fqdn == pdom(baseDomain) {
+		if fqdn == pdom(o.cfg.general.Domain) {
 			for _, i := range []int{1, 2} {
 				rr := &dns.NS{
-					Hdr: dns.RR_Header{Name: pdom(baseDomain), Rrtype: dns.TypeNS, Class: dns.ClassINET, Ttl: 300},
-					Ns:  "ns" + strconv.Itoa(i) + "." + pdom(baseDomain),
+					Hdr: dns.RR_Header{Name: pdom(o.cfg.general.Domain), Rrtype: dns.TypeNS, Class: dns.ClassINET, Ttl: 300},
+					Ns:  "ns" + strconv.Itoa(i) + "." + pdom(o.cfg.general.Domain),
 				}
 				m.Answer = append(m.Answer, rr)
 			}
 		}
 	}
 	w.WriteMsg(m)
-}
-
-// matchDomain finds which managed domain the FQDN belongs to.
-func (o *Nameserver) matchDomain(fqdn string) string {
-	// Strip trailing dot
-	host := strings.TrimSuffix(fqdn, ".")
-	dm := o.cfg.GetDomainManager()
-	if dm == nil {
-		return ""
-	}
-	domains := dm.GetActiveDomains()
-	// Try longest match first
-	for _, d := range domains {
-		if host == d || strings.HasSuffix(host, "."+d) {
-			return d
-		}
-	}
-	return ""
 }
 
 func pdom(domain string) string {

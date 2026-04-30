@@ -7,16 +7,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chzyer/readline"
 	"github.com/fatih/color"
 )
 
 var stdout io.Writer = color.Output
-
-type ReadlineRefresher interface {
-	Refresh()
-}
-
-var g_rl ReadlineRefresher = nil
+var g_rl *readline.Instance = nil
 var debug_output = true
 var mtx_log *sync.Mutex = &sync.Mutex{}
 
@@ -48,7 +44,7 @@ func SetOutput(o io.Writer) {
 	stdout = o
 }
 
-func SetReadline(rl ReadlineRefresher) {
+func SetReadline(rl *readline.Instance) {
 	g_rl = rl
 }
 
