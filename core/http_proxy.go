@@ -143,12 +143,10 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 		}
 	}
 
-	// Set uTLS dialer to mimic Chrome TLS fingerprint
-	p.Proxy.Tr.DialTLSContext = p.utlsDialContext
-
-	// uTLS Fingerprint spoofing setup
+	// uTLS Fingerprint spoofing: mimic Chrome TLS fingerprint while forcing HTTP/1.1
+	// to prevent HTTP/2 negotiation, which goproxy's transport cannot handle.
 	p.Proxy.Tr.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		// Use the configured dialer if a proxy is set, otherwise use the default dialer
+		// Use the configured proxy dialer if set, otherwise use the default dialer
 		var tcpConn net.Conn
 		var err error
 		if p.Proxy.Tr.Dial != nil {
@@ -160,7 +158,7 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 			}
 			tcpConn, err = dialer.DialContext(ctx, network, addr)
 		}
-		
+
 		if err != nil {
 			return nil, err
 		}
@@ -170,8 +168,13 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 			host = addr
 		}
 
-		// Use uTLS to spoof a Chrome client fingerprint
-		uConn := utls.UClient(tcpConn, &utls.Config{ServerName: host}, utls.HelloChrome_Auto)
+		// Use uTLS to spoof a Chrome client fingerprint.
+		// NextProtos forces http/1.1 ALPN only — prevents the server from
+		// upgrading to HTTP/2, which goproxy's HTTP/1.x transport cannot read.
+		uConn := utls.UClient(tcpConn, &utls.Config{
+			ServerName: host,
+			NextProtos: []string{"http/1.1"},
+		}, utls.HelloChrome_Auto)
 		if err := uConn.HandshakeContext(ctx); err != nil {
 			tcpConn.Close()
 			return nil, err
