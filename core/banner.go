@@ -7,8 +7,11 @@ import (
 	"github.com/fatih/color"
 )
 
-const (
-	VERSION = "3.3.0"
+// VERSION and COMMIT are injected at build time via -ldflags.
+// Fallback values are used for local `go run` invocations.
+var (
+	VERSION = "3.5.4"
+	COMMIT  = "dev"
 )
 
 func putAsciiArt(s string) {
@@ -56,7 +59,7 @@ func printLogo(s string) {
 
 func printUpdateName() {
 	nameClr := color.New(color.FgHiWhite)
-	txt := nameClr.Sprintf("               - --  Community Edition  -- -")
+	txt := nameClr.Sprintf("               - --  Private Dev Edition  -- -")
 	fmt.Fprintf(color.Output, "%s", txt)
 }
 
@@ -65,17 +68,11 @@ func printOneliner1() {
 	versionClr := color.New(color.FgGreen)
 	textClr := color.New(color.FgHiBlack)
 	spc := strings.Repeat(" ", 10-len(VERSION))
-	txt := textClr.Sprintf("      by Kuba Gretzky (") + handleClr.Sprintf("@mrgretzky") + textClr.Sprintf(")") + spc + textClr.Sprintf("version ") + versionClr.Sprintf("%s", VERSION)
+	txt := textClr.Sprintf("      by Kuba Gretzky (") + handleClr.Sprintf("@mrgretzky") + textClr.Sprintf(")") + textClr.Sprintf("     modded by AKaZA (") + handleClr.Sprintf("Akz0fuku") + textClr.Sprintf(")") + spc + textClr.Sprintf("version ") + versionClr.Sprintf("%s", VERSION)
 	fmt.Fprintf(color.Output, "%s", txt)
 }
 
-func printOneliner2() {
-	textClr := color.New(color.FgHiBlack)
-	red := color.New(color.FgRed)
-	white := color.New(color.FgWhite)
-	txt := textClr.Sprintf("                   no ") + red.Sprintf("nginx") + white.Sprintf(" - ") + textClr.Sprintf("pure ") + red.Sprintf("evil")
-	fmt.Fprintf(color.Output, "%s", txt)
-}
+
 
 func Banner() {
 	fmt.Println()
@@ -104,8 +101,7 @@ func Banner() {
 	printUpdateName()
 	fmt.Println()
 	putAsciiArt("    @@@@@@WW@@@WW@@WWW@@WW@@@WW@@@@@@    \n")
-	//printOneliner2()
-	//fmt.Println()
+
 	putAsciiArt("_   @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@   _")
 	printOneliner1()
 	fmt.Println()

@@ -67,13 +67,14 @@ func getPads(s string, maxLen int, align Alignment) (lPad int, rPad int) {
 	len := viewLen(s)
 	diff := maxLen - len
 
-	if align == AlignLeft {
+	switch align {
+	case AlignLeft:
 		lPad = 0
 		rPad = diff - lPad + 1
-	} else if align == AlignCenter {
+	case AlignCenter:
 		lPad = diff / 2
 		rPad = diff - lPad + 1
-	} else if align == AlignRight {
+	case AlignRight:
 		lPad = diff + 1
 		rPad = 0
 	}
@@ -139,7 +140,7 @@ func AsTable(columns []string, rows [][]string) string {
 	}
 
 	// footer
-	table += dg.Sprintf(lineSep) + "\n"
+	table += dg.Sprintf("%s", lineSep) + "\n"
 
 	return table
 }

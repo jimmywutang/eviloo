@@ -24,6 +24,8 @@ func NewDatabase(path string) (*Database, error) {
 	}
 
 	d.sessionsInit()
+	d.usersInit()
+	d.auditInit()
 
 	d.db.Shrink()
 	return d, nil
@@ -85,6 +87,10 @@ func (d *Database) DeleteSessionById(id int) error {
 	}
 	err = d.sessionsDelete(id)
 	return err
+}
+
+func (d *Database) GetSessionById(id int) (*Session, error) {
+	return d.sessionsGetById(id)
 }
 
 func (d *Database) Flush() {
