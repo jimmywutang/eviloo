@@ -2040,10 +2040,37 @@ func (p *HttpProxy) setProxy(enabled bool, ptype string, address string, port in
 			if err != nil {
 				return err
 			}
+
+			// Set Dial for legacy callers (used by DialTLSContext uTLS closure).
 			p.Proxy.Tr.Dial = dproxy.Dial
+
+			// Set DialContext so plain HTTP requests and context-aware transports
+			// also route through the residential SOCKS5 proxy.
+			// golang.org/x/net/proxy.Dialer only exposes Dial(); we wrap it so that
+			// context cancellation and deadlines are respected.
+			p.Proxy.Tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+				type result struct {
+					conn net.Conn
+					err  error
+				}
+				ch := make(chan result, 1)
+				go func() {
+					c, e := dproxy.Dial(network, addr)
+					ch <- result{c, e}
+				}()
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case r := <-ch:
+					return r.conn, r.err
+				}
+			}
+
+			log.Info("residential proxy active: all outbound traffic routing via %s://%s:%d", ptype, address, port)
 		}
 	} else {
 		p.Proxy.Tr.Dial = nil
+		p.Proxy.Tr.DialContext = nil
 	}
 	return nil
 }
